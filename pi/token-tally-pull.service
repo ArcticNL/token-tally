@@ -1,0 +1,8 @@
+[Unit]
+Description=Deploy new Token & Tally commits from GitHub
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/token-tally-office/pi/github-pull.sh
+Nice=10

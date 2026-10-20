@@ -1,0 +1,16 @@
+[Unit]
+Description=Token & Tally office for Claude Code agents
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/token-tally-office
+# This machine's settings (addresses, key file) live in office.env, which isn't in git.
+# Copy pi/office.env.example to ~/token-tally-office/office.env and fill it in.
+EnvironmentFile=%h/token-tally-office/office.env
+ExecStart=/usr/bin/python3 %h/token-tally-office/server.py $OFFICE_ARGS
+Restart=always
+RestartSec=3
+Nice=10
+
+[Install]
+WantedBy=default.target

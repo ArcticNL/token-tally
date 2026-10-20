@@ -1,0 +1,8 @@
+#!/bin/sh
+# Git hook for the bare repo on the Pi (~/git/token-tally-office.git/hooks/post-receive).
+# A push to main deploys it, using pi/deploy.sh from the pushed commit itself.
+set -e
+while read -r old new ref; do
+    [ "$ref" = "refs/heads/main" ] || continue
+    git show "$new:pi/deploy.sh" | sh -s -- "$(pwd)"
+done

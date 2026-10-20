@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token &amp; Tally Office</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --face: #c3c3c3; --hi: #ffffff; --lo: #808080; --dk: #000000;
+    --navy: #000080; --title2: #1084d0; --ink: #000000; --paper: #ffffff;
+    --memo: #fff7b8; --memo-edge: #d9c75e;
+    --ok: #0a7a2f; --think: #1d4fa8; --wait: #c0140c; --brk: #8a5a12; --slack: #7a2c8f;
+    --night: #23252f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--night); color: var(--ink);
+    font: 12px/1.35 Tahoma, "MS Sans Serif", Verdana, Geneva, sans-serif; }
+  #scene { position: fixed; inset: 0 0 34px 0; }
+  #scene canvas { display: block; }
+  .labels { position: absolute; inset: 0; pointer-events: none; }
+  .labels.off .tag { display: none; }
+
+  /* ---- retro desktop chrome ---- */
+  .win { position: fixed; background: var(--face); border: 2px solid; border-color: var(--hi) var(--dk) var(--dk) var(--hi);
+    box-shadow: inset -1px -1px var(--lo), inset 1px 1px #dfdfdf, 3px 3px 0 rgba(0,0,0,.25); z-index: 5; }
+  .titlebar { display: flex; align-items: center; gap: 6px; padding: 3px 3px 3px 6px; color: #fff; font-weight: bold;
+    background: linear-gradient(90deg, var(--navy), var(--title2)); user-select: none; }
+  .titlebar .t { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .titlebar button { width: 18px; height: 16px; padding: 0; font: bold 11px/1 Tahoma, sans-serif; }
+  .retro, .titlebar button { background: var(--face); color: var(--ink); border: 2px solid; border-color: var(--hi) var(--dk) var(--dk) var(--hi);
+    box-shadow: inset -1px -1px var(--lo); cursor: pointer; }
+  .retro { padding: 3px 10px; font: inherit; }
+  .retro:active, .retro.on, .titlebar button:active { border-color: var(--dk) var(--hi) var(--hi) var(--dk); box-shadow: inset 1px 1px var(--lo); }
+  .retro:focus-visible, .titlebar button:focus-visible, .row:focus-visible { outline: 1px dotted #000; outline-offset: -4px; }
+  .sunken { background: var(--paper); border: 2px solid; border-color: var(--lo) var(--hi) var(--hi) var(--lo); box-shadow: inset 1px 1px var(--dk); }
+  .hidden { display: none !important; }
+
+  #roster { left: 12px; top: 12px; width: 340px; max-height: calc(100% - 92px); display: flex; flex-direction: column; }
+  #roster.min .body { display: none; }
+  #roster .body { display: flex; flex-direction: column; min-height: 0; padding: 6px; gap: 6px; }
+  #roster .list { overflow: auto; min-height: 60px; }
+  #roster .hint { font-size: 11px; color: #333; }
+  .row { display: grid; grid-template-columns: 14px 1fr auto; gap: 2px 7px; padding: 4px 6px; cursor: pointer; align-items: center; border-bottom: 1px solid #eee; }
+  .row.child { padding-left: 22px; }
+  .row:hover { background: #e7e9f6; }
+  .row.sel { background: var(--navy); color: #fff; }
+  .row .dot { width: 12px; height: 12px; border: 1px solid #000; }
+  .row .nm { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .sub { grid-column: 2 / 4; font-size: 11px; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.sel .sub { color: #d6dcff; }
+  .pill { display: inline-block; font-size: 9px; font-weight: bold; padding: 0 4px; margin-left: 4px; border: 1px solid currentColor; text-transform: uppercase; vertical-align: 1px; }
+  .st { font-size: 10px; font-weight: bold; text-transform: uppercase; padding: 1px 5px; color: #fff; white-space: nowrap; }
+  .st.work { background: var(--ok); } .st.think { background: var(--think); } .st.wait { background: var(--wait); }
+  .st.break { background: var(--brk); } .st.slack { background: var(--slack); } .st.boss { background: #333; }
+  .empty-row { padding: 10px 6px; color: #444; }
+
+  #file { right: 12px; bottom: 46px; width: 370px; max-height: calc(100% - 140px); display: flex; flex-direction: column; }
+  #file .body { padding: 8px; overflow: auto; }
+  #file dl { display: grid; grid-template-columns: 92px 1fr; gap: 4px 8px; margin: 0 0 8px; }
+  #file dt { color: #333; }
+  #file dd { margin: 0; word-break: break-word; }
+  #file .log { padding: 4px 6px; font: 15px/1.15 "VT323", "Courier New", monospace; max-height: 150px; overflow: auto; }
+  #file .log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  #memos { position: fixed; right: 12px; top: 12px; width: 280px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; z-index: 4; }
+  .memo { background: var(--memo); border: 1px solid var(--memo-edge); box-shadow: 2px 3px 0 rgba(0,0,0,.35);
+    padding: 7px 9px 8px; font: 18px/1.05 "VT323", "Courier New", monospace; color: #2a2410; animation: memo-in .35s ease-out;
+    transition: opacity .6s, transform .6s; }
+  .memo:nth-child(odd) { transform: rotate(-1deg); } .memo:nth-child(even) { transform: rotate(.8deg); }
+  .memo.alert { background: #ffd6cf; border-color: #d27a6b; }
+  .memo.out { opacity: 0; transform: translateX(30px); }
+  @keyframes memo-in { from { opacity: 0; transform: translateY(-10px) rotate(-3deg); } }
+
+  .dialog { left: 50%; top: 42%; transform: translate(-50%, -50%); width: min(420px, calc(100% - 32px)); z-index: 8; }
+  .dialog .body { padding: 14px; display: grid; grid-template-columns: 40px 1fr; gap: 12px; }
+  .dialog .icon { width: 36px; height: 36px; background: #fff200; border: 2px solid #000; border-radius: 50%; display: grid; place-items: center; font: bold 22px Tahoma; }
+  .dialog p { margin: 0 0 8px; }
+  .dialog code { font: 12px "Courier New", monospace; background: #fff; padding: 0 3px; }
+  .dialog .buttons { grid-column: 1 / 3; display: flex; justify-content: flex-end; gap: 8px; }
+
+  #taskbar { position: fixed; left: 0; right: 0; bottom: 0; height: 34px; background: var(--face); border-top: 2px solid var(--hi);
+    box-shadow: 0 -1px 0 #dfdfdf; display: flex; align-items: center; gap: 6px; padding: 3px 4px; z-index: 6; }
+  #start { font-weight: bold; display: flex; align-items: center; gap: 6px; height: 26px; }
+  #start .logo { height: 16px; padding: 0 3px; display: grid; place-items: center; background: #7a1f2b; color: #ffd66b;
+    font: bold 9px/1 Tahoma, Verdana, sans-serif; letter-spacing: -.3px; border: 1px solid #000; }
+  #stats { flex: 1; height: 26px; display: flex; align-items: center; padding: 0 8px; gap: 12px; white-space: nowrap; overflow: hidden; background: var(--face); }
+  #stats b { font-weight: bold; }
+  #demo { height: 26px; }
+  #conn { height: 26px; display: flex; align-items: center; gap: 5px; padding: 0 8px; white-space: nowrap; }
+  #conn i { width: 9px; height: 9px; border-radius: 50%; background: #999; border: 1px solid #000; }
+  #conn.live i { background: #29d14b; } #conn.off i { background: #e0281e; } #conn.demo i { background: #f2b81b; }
+  #clock { height: 26px; display: flex; align-items: center; padding: 0 10px; font: 20px/1 "VT323", monospace; }
+  #startmenu { left: 2px; bottom: 36px; width: 230px; display: flex; z-index: 9; }
+  #startmenu .stripe { width: 26px; background: linear-gradient(0deg, var(--navy), var(--title2)); color: #c3c3c3; writing-mode: vertical-rl; transform: rotate(180deg);
+    font: bold 15px Tahoma; padding: 8px 4px; letter-spacing: 1px; }
+  #startmenu .stripe b { color: #fff; }
+  #startmenu ul { list-style: none; margin: 0; padding: 3px; flex: 1; }
+  #startmenu li button { width: 100%; text-align: left; background: none; border: 0; padding: 7px 10px; font: inherit; cursor: pointer; }
+  #startmenu li button:hover, #startmenu li button:focus-visible { background: var(--navy); color: #fff; outline: none; }
+  #startmenu hr { border: 0; border-top: 1px solid var(--lo); border-bottom: 1px solid var(--hi); margin: 3px 2px; }
+
+  /* ---- labels floating over people ---- */
+  .tag { font: 11px/1.2 Tahoma, sans-serif; background: rgba(255,255,255,.94); border: 1px solid #000; padding: 1px 6px 2px; text-align: center;
+    white-space: nowrap; pointer-events: auto; cursor: pointer; box-shadow: 1px 1px 0 rgba(0,0,0,.35); }
+  .tag b { display: block; font-size: 11px; }
+  .tag small { display: block; font-size: 10px; color: #333; max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+  .tag.temp { background: rgba(255,240,170,.96); }
+  .tag.boss { background: rgba(40,44,60,.95); color: #fff; } .tag.boss small { color: #cfd3e0; }
+  .tag.sel { outline: 2px solid #000080; outline-offset: 1px; }
+  .bubble { font: bold 15px/1 Tahoma, sans-serif; background: #fff; border: 2px solid #000; border-radius: 12px; padding: 3px 8px 4px; position: relative; pointer-events: none; }
+  .bubble::after { content: ""; position: absolute; left: 50%; bottom: -8px; margin-left: -5px; border: 5px solid transparent; border-top: 6px solid #000; }
+  .bubble.alert { background: #ffdf3b; animation: bob .7s ease-in-out infinite; }
+  .bubble.boss { background: #f1f1f1; font-size: 13px; }
+  @keyframes bob { 50% { transform: translateY(-5px); } }
+
+  @media (max-width: 720px) {
+    #roster { right: 12px; width: auto; max-height: 42vh; }
+    #memos { display: none; }
+    #file { left: 12px; right: 12px; width: auto; max-height: 45vh; }
+    #stats .long { display: none; }
+    #clock { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .bubble.alert, .memo { animation: none; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="scene" aria-label="3D office floor showing each agent as an office worker"></div>
+
+<section class="win" id="roster" aria-label="Staff roster">
+  <div class="titlebar"><span class="t">Staff Roster.exe</span><button id="roster-min" aria-label="Minimise roster" title="Minimise">_</button></div>
+  <div class="body">
+    <div class="list sunken" id="roster-list" role="list"></div>
+    <div class="hint" id="roster-hint">Click someone to open their personnel file.</div>
+  </div>
+</section>
+
+<section class="win hidden" id="file" aria-label="Personnel file">
+  <div class="titlebar"><span class="t" id="file-title">Personnel File</span><button id="file-close" aria-label="Close personnel file" title="Close">×</button></div>
+  <div class="body" id="file-body"></div>
+</section>
+
+<div id="memos" aria-live="polite"></div>
+
+<section class="win dialog hidden" id="empty" role="dialog" aria-label="Nobody on shift">
+  <div class="titlebar"><span class="t">Token &amp; Tally</span><button data-close aria-label="Close">×</button></div>
+  <div class="body">
+    <div class="icon">i</div>
+    <div>
+      <p><b>Nobody has clocked in yet.</b></p>
+      <p>Start a Claude Code session and your agents will walk in through the front door. Subagents arrive as temps.</p>
+    </div>
+    <div class="buttons"><button class="retro" id="empty-demo">Run a demo shift</button><button class="retro" data-close>OK</button></div>
+  </div>
+</section>
+
+<section class="win dialog hidden" id="about" role="dialog" aria-label="About">
+  <div class="titlebar"><span class="t">About Token &amp; Tally</span><button data-close aria-label="Close">×</button></div>
+  <div class="body">
+    <div class="icon">?</div>
+    <div>
+      <p><b>Token &amp; Tally Stationery Supplies</b><br>est. 1994</p>
+      <p>Every Claude Code session is a Specialist with a cubicle. Subagents are Temps. Edits happen at the desk, reads at the filing cabinets,
+        shell commands at the copier, web lookups on the phone, and plans on the whiteboard.</p>
+      <p>Finish a task and it's a coffee break. Sit idle too long and it's a game of Mines, and the Manager will come and have a word.</p>
+    </div>
+    <div class="buttons"><button class="retro" data-close>OK</button></div>
+  </div>
+</section>
+
+<section class="win hidden" id="startmenu" aria-label="Start menu">
+  <div class="stripe"><b>Token</b> &amp; Tally</div>
+  <ul>
+    <li><button data-cmd="camera">Reset camera</button></li>
+    <li><button data-cmd="labels">Hide name tags</button></li>
+    <li><button data-cmd="lite">Low quality mode</button></li>
+    <li><button data-cmd="demo">Demo shift</button></li>
+    <li><hr></li>
+    <li><button data-cmd="about">About Token &amp; Tally…</button></li>
+  </ul>
+</section>
+
+<footer id="taskbar">
+  <button class="retro" id="start" aria-haspopup="true" aria-controls="startmenu"><span class="logo" aria-hidden="true">T&amp;T</span>Start</button>
+  <div id="stats" class="sunken" style="background:var(--face)"></div>
+  <button class="retro" id="demo" aria-pressed="false">Demo shift</button>
+  <div id="conn" class="sunken" style="background:var(--face)"><i></i><span>Connecting…</span></div>
+  <div id="clock" class="sunken" style="background:var(--face)"></div>
+</footer>
+
+<script type="module" src="office.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Secrets: never commit these
+hook.key
+relay.json
+
+# Local leftovers
+__pycache__/
+*.pyc
+settings.json.bak-*
+.claude/
+
+# This machine's office settings (see pi/office.env.example)
+office.env
