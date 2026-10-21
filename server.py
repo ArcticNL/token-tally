@@ -11,6 +11,7 @@ Standard library only:
 """
 
 import argparse
+import hashlib
 import hmac
 import json
 import os
@@ -51,7 +52,8 @@ GUESSABLE = {"typing", "copier", "phone"}  # tasks that usually ask for permissi
 HOOK_EVENTS = {"SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
                "PermissionRequest", "Notification", "Stop", "SubagentStart", "SubagentStop"}
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
-HOOK_KEY = ""  # set from --hook-key-file; hook posts must carry it in X-Token-Tally-Key
+HOOK_KEY = ""  # set from --hook-key-file; hook posts must then be signed with it (check_signature)
+SIGNATURE_WINDOW = 300  # seconds a signed event stays valid, which also allows for clocks being a bit off
 EXTRA_URLS = []  # other addresses of this office (e.g. over Tailscale) that PC relays should also try
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".py": "text/plain; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml"}
@@ -97,6 +99,55 @@ def parse_ts(value, default):
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
     except ValueError:
         return default
+
+
+class NonceLog:
+    """Nonces of recently accepted events, so a captured event can't be sent again."""
+
+    def __init__(self, limit=100_000):
+        self.lock = threading.Lock()
+        self.seen = {}
+        self.limit = limit
+
+    def first_use(self, nonce, now):
+        with self.lock:
+            if nonce in self.seen:
+                return False
+            if len(self.seen) >= 5000:  # forget nonces whose events would be refused as expired anyway
+                self.seen = {n: t for n, t in self.seen.items() if now - t <= 2 * SIGNATURE_WINDOW}
+            if len(self.seen) >= self.limit:  # a flood of valid events: refuse rather than forget too soon
+                return False
+            self.seen[nonce] = now
+            return True
+
+
+NONCES = NonceLog()
+
+
+def check_signature(headers, body, now=None):
+    """'' when the event is signed with the hook key, otherwise why it isn't.
+
+    The relay signs "v1.<time>.<nonce>." plus the exact body with HMAC-SHA256, so the key
+    itself never crosses the network. Old, altered or replayed events are refused.
+    """
+    now = time.time() if now is None else now
+    if headers.get("X-Token-Tally-Key"):
+        return "This relay sends the key in plain text. Run the installer again to update it."
+    stamp = headers.get("X-Token-Tally-Time", "")
+    nonce = headers.get("X-Token-Tally-Nonce", "")
+    mac = headers.get("X-Token-Tally-Signature", "").lower()
+    if not (stamp and nonce and mac):
+        return "Unsigned event"
+    if not stamp.isdigit() or not 16 <= len(nonce) <= 64 or not nonce.isalnum():
+        return "Malformed signature"
+    if abs(now - int(stamp)) > SIGNATURE_WINDOW:
+        return "Signature expired: is this computer's clock more than 5 minutes off?"
+    expected = hmac.new(HOOK_KEY.encode("utf-8"), f"v1.{stamp}.{nonce}.".encode() + body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(mac, expected):
+        return "Wrong signature"
+    if not NONCES.first_use(nonce, now):
+        return "Replayed event"
+    return ""
 
 
 def read_names():
@@ -490,13 +541,26 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed_host() or urlparse(self.path).path != "/hook":
             return self.send(404, b"Not found")
-        if HOOK_KEY and not hmac.compare_digest(self.headers.get("X-Token-Tally-Key", ""), HOOK_KEY):
-            return self.send(403, b"Wrong hook key")
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > 1_000_000:
-            return self.send(413, b"Too large")
+        # Only relays post events. Browsers mark their requests with Origin / Sec-Fetch-Site, and a
+        # web page can't send application/json to another site without a CORS preflight, which this
+        # server never answers. That stops cross-site posts even in local mode, where there's no key.
+        if self.headers.get("Origin") or self.headers.get("Sec-Fetch-Site"):
+            return self.send(403, b"Events come from the relay, not from web pages")
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return self.send(415, b"Content-Type must be application/json")
         try:
-            data = json.loads(self.rfile.read(length) or b"{}")
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self.send(400, b"Bad Content-Length")
+        if not 0 <= length <= 1_000_000:
+            return self.send(413, b"Too large")
+        body = self.rfile.read(length)
+        if HOOK_KEY:
+            problem = check_signature(self.headers, body)
+            if problem:
+                return self.send(403, problem.encode())
+        try:
+            data = json.loads(body or b"{}")
         except ValueError:
             return self.send(400, b"Bad JSON")
         if isinstance(data, dict):

@@ -15,8 +15,11 @@ or with --uninstall to remove it again.
 """
 import argparse
 import getpass
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import shutil
 import socket
 import sys
@@ -45,15 +48,25 @@ def fetch(url, timeout=5):
         return resp.read()
 
 
+def sign(key, body):
+    """The same signature the relay sends: the key proves itself without crossing the network."""
+    stamp, nonce = str(int(time.time())), secrets.token_hex(12)
+    mac = hmac.new(key.encode("utf-8"), f"v1.{stamp}.{nonce}.".encode() + body, hashlib.sha256).hexdigest()
+    return {"X-Token-Tally-Time": stamp, "X-Token-Tally-Nonce": nonce, "X-Token-Tally-Signature": mac}
+
+
 def check_key(urls, key):
-    """'ok', 'bad-key' or 'unreachable', trying each address in turn."""
+    """('ok' | 'bad-key' | 'clock' | 'error N' | 'unreachable', url), trying each address in turn."""
     for url in urls:
-        req = urllib.request.Request(url, data=b"{}", headers={"Content-Type": "application/json", "X-Token-Tally-Key": key})
+        headers = {"Content-Type": "application/json", **sign(key, b"{}")}
         try:
-            with OPENER.open(req, timeout=3):
+            with OPENER.open(urllib.request.Request(url, data=b"{}", headers=headers), timeout=3):
                 return "ok", url
         except urllib.error.HTTPError as err:
-            return ("bad-key" if err.code == 403 else f"error {err.code}"), url
+            if err.code != 403:
+                return f"error {err.code}", url
+            reason = err.read(200).decode("utf-8", "replace").lower()
+            return ("clock" if "clock" in reason else "bad-key"), url
         except Exception:
             continue
     return "unreachable", None
@@ -120,6 +133,8 @@ def install(args):
     status, where = check_key(urls, key)
     if status == "bad-key":
         sys.exit("The office refused that key. Nothing changed.")
+    if status == "clock":
+        sys.exit("The office says this computer's clock is more than 5 minutes off. Fix the time and run this again. Nothing changed.")
     if status == "unreachable":
         print("  Warning: couldn't reach the office right now. Installing anyway; it'll connect when it can.")
     elif status != "ok":

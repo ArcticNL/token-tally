@@ -16,7 +16,7 @@ Nothing in the office can control Claude. Data flows one way, from Claude Code t
 
 ## Two ways the server learns what agents do
 
-1. **Hooks (used on the Pi).** Claude Code runs `hook_relay.py` for every hook event. The relay posts a trimmed copy to `POST /hook` with the `X-Token-Tally-Key` header. The Pi can't see any PC's files, so hooks are the only source there.
+1. **Hooks (used on the Pi).** Claude Code runs `hook_relay.py` for every hook event. The relay posts a trimmed copy to `POST /hook`, signed with the office key (an HMAC; the key itself never leaves the PC), trying Tailscale addresses first. The Pi can't see any PC's files, so hooks are the only source there.
 2. **Transcripts (local runs).** When the server runs on the same computer as Claude Code, it also tails the JSONL transcripts in `~/.claude/projects/*/*.jsonl` and `*/*/subagents/*.jsonl`. That way it works with no hooks installed at all. Files are read oldest-first, because a session that moved folders leaves two transcripts and the newest must win.
 
 Both feed the same `Agent` records, so they can be mixed.
@@ -84,6 +84,6 @@ Every second, `tick()` does the following:
 | `/events` | GET | Server-Sent Events: the full agent list whenever it changes, plus a ping every 15 s |
 | `/state` | GET | the same snapshot once, as JSON |
 | `/names` | GET | the cast from `names.txt`: `{"names": [...], "manager": "...", "says": [...]}`; empty values mean the built-in cast |
-| `/hook` | POST | one hook event; needs `X-Token-Tally-Key` when the server has a key |
+| `/hook` | POST | one hook event, `Content-Type: application/json` only, never from a browser (`Origin` / `Sec-Fetch-Site` are refused). With a key, it must be signed: `X-Token-Tally-Time`, `X-Token-Tally-Nonce` and `X-Token-Tally-Signature` = HMAC-SHA256(key, `v1.<time>.<nonce>.` + body). Events more than 5 minutes off, or with a nonce already used, are refused |
 
 The default port is 8377. Requests whose `Host` isn't one of the allowed names get a 403. That guards against DNS rebinding.

@@ -24,6 +24,7 @@ If a `CLAUDE.local.md` exists, it describes this particular install (addresses, 
 - Don't add other people's assets, logos or trademarks (game names, OS logos). Everything visual is drawn in code.
 - Keep LF line endings (`.gitattributes`). The server needs LF for `pi/post-receive` and the units.
 - The relay must stay harmless: always exit 0, print nothing, run as an `async` hook, and send only trimmed fields (see docs/security.md). Never send file contents or full commands.
+- The office key never goes on the wire. The relay and installer **sign** each post (HMAC-SHA256 over `v1.<time>.<nonce>.` + body), and the server checks the signature, the 5-minute window and nonce reuse. Keep the signing code in `hook_relay.py`, `static/kit/install_relay.py` and `server.py`'s `check_signature` in step. `/hook` refuses anything that isn't `application/json` or that carries `Origin` / `Sec-Fetch-Site`; don't loosen that.
 - The office only displays. It must never approve or answer anything for Claude. Approvals happen in Claude Code or the Claude app.
 - `server.py` refuses a non-local `--host` without `--hook-key-file`. Keep it that way.
 

@@ -26,7 +26,13 @@ echo '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Edit","tool
 curl -s http://127.0.0.1:8390/state
 ```
 
-Build test events with `json.dumps` rather than typing JSON in the shell. Windows paths with backslashes are easy to break by hand.
+Build test events with `json.dumps` rather than typing JSON in the shell. Windows paths with backslashes are easy to break by hand. A plain `curl` post to a keyed server is refused, because events must be signed. Send test events through `hook_relay.py`, which signs them.
+
+To check the security of `/hook` after a change, run the end-to-end test. It starts two throwaway servers on ports 8393 and 8394 and checks signed, replayed, altered, expired and cross-site posts, plus that the key never leaves the relay:
+
+```bash
+python tests/test_signing.py
+```
 
 To test the cast, put a `names.txt` next to `server.py` (it's gitignored, so it can't be committed by accident):
 

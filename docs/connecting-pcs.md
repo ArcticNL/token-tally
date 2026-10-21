@@ -58,7 +58,7 @@ New Claude Code sessions report straight away. Sessions that were already open s
 
 ## Away from home: Tailscale
 
-If the server is on Tailscale and has `--extra-url http://<tailscale-ip>:8377` in its settings, the relay tries the home address first (up to 0.8 s), then the Tailscale one (up to 2.5 s). To make a laptop report from anywhere:
+If the server is on Tailscale and has `--extra-url http://<tailscale-ip>:8377` in its settings, the relay tries the Tailscale address first, then the home address. Each try waits up to 2 seconds. Tailscale goes first because it's encrypted, and only your own devices can answer on it. The home address is then only a fallback for when Tailscale isn't running on that PC, so a laptop on someone else's network doesn't send events to a stranger who happens to use the same address. Addresses in `100.64.0.0/10` or ending in `.ts.net` count as Tailscale. To make a laptop report from anywhere:
 
 1. Install Tailscale on it.
 2. Sign in to the same tailnet as the server.

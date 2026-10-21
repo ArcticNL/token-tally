@@ -22,6 +22,15 @@
 - **Workers stay on shift up to 60 minutes** after their last activity, and temps leave 45 s after finishing. A session that crashed without a `SessionEnd` clocks out after that hour.
 - **To clear everyone now:** `systemctl --user restart token-tally`. The office rebuilds as events come in.
 
+## A PC's events are refused
+
+Run the installer again on that PC: it reports what the office said. The office refuses events with a 403 and one of these reasons:
+
+- **"This relay sends the key in plain text":** that PC still has the relay from before events were signed. Run the installer again to update it.
+- **"Signature expired":** that PC's clock is more than 5 minutes off from the server's. Turn on automatic time on both.
+- **"Wrong signature":** the key in that PC's `relay.json` doesn't match `hook.key` on the server, for example after a rotation.
+- **415 "Content-Type must be application/json" or "Events come from the relay, not from web pages":** something other than the relay posted, such as a web page or a hand-written test. Use `hook_relay.py`; see [development.md](development.md).
+
 ## Names or the Manager didn't change
 
 - **Give it 30 seconds,** or reload the page. The office re-reads `names.txt` on that schedule.

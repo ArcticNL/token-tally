@@ -23,13 +23,26 @@ Anyone who can open your office's address can watch it, including the prompt fir
 
 ## Who can post events
 
-`POST /hook` needs the `X-Token-Tally-Key` header to match `hook.key` on the Pi. It's compared in constant time. Without it, you get a 403. That stops others on the network from adding fake workers. The server refuses to listen beyond localhost unless a key file is given.
+With a key set (always the case when the office listens beyond localhost), every `POST /hook` must be **signed**. The relay sends a timestamp, a random one-off nonce, and an HMAC-SHA256 of `v1.<time>.<nonce>.` plus the exact body, made with the key. The **key itself never crosses the network**. The server checks the signature in constant time and refuses an event if any of these hold:
+
+- the signature doesn't match (a wrong key, or the body was changed on the way)
+- its time is more than 5 minutes off (old captures can't be used later; also check the PC's clock)
+- its nonce was already used (a captured event can't be sent again)
+- it carries the old plain `X-Token-Tally-Key` header: run the installer again to update that PC's relay.
+
+The server refuses to listen beyond localhost unless a key file is given.
 
 - **The key lives in:** `~/token-tally-office/hook.key` on the Pi (mode 600) and `~/.claude/token-tally/relay.json` on each PC.
 - **It's never in git:** both files are in `.gitignore`.
-- **If it leaks:** rotate it. See [pi-server.md](pi-server.md#rotating-the-key).
+- **If it leaks:** rotate it. See [pi-server.md](pi-server.md#rotating-the-key). Older relays sent the key in plain text, so rotating once after updating every PC is a good idea.
 
-Traffic on the home network is plain HTTP, so someone already on your Wi-Fi could read the trimmed events. Over Tailscale it's encrypted.
+### Web pages can't post events
+
+`/hook` only accepts `Content-Type: application/json` and refuses any request with an `Origin` or `Sec-Fetch-Site` header, which browsers add and the relay never sends. A web page can't make a cross-site JSON post without a CORS preflight, and the server never answers one. So a malicious site you visit can't add fake workers, even in local mode, where there's no key.
+
+### What still travels unencrypted
+
+On the home network, events are plain HTTP. Someone already on your Wi-Fi can read the trimmed fields (prompt first lines, file names, command first lines), but can't forge or replay events, and never sees the key. Over Tailscale, everything is encrypted. The relay tries Tailscale first and only falls back to the home address when Tailscale is unreachable from that PC.
 
 ## The office can't act on Claude
 
