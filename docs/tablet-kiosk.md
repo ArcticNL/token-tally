@@ -40,7 +40,7 @@ If the tablet is locked in Fully Kiosk, allow the Claude app in Fully Kiosk's ap
 - **The personnel file**: their assignment, what they're doing now and for how long, and the last actions.
 - **Sticky notes** (top right): arrivals, departures, "needs your sign-off", and the Manager catching someone.
 - **The taskbar**: counts of working, waiting, on break and slacking workers; a **Live · hooks on** indicator; the clock.
-- **The Manager** (Mr. Pemberton unless you rename him): walks over to anyone idle for 2+ minutes playing Mines and has a word.
+- **The Manager** (grey hair, glasses, dark suit; Mr. Pemberton unless you rename him): walks over to anyone idle for 2+ minutes playing Mines and says one of his lines. The worker jumps ("!?"), and a sticky note records what he said.
 
 ## Changing the workers' names
 
@@ -53,7 +53,13 @@ Bob
 Charlie
 ```
 
-You can edit the file at any time, for example with `nano names.txt` over SSH. The office checks it every 30 seconds, and when it changes, everyone on shift gets a new name tag, including their desk nameplate.
+You can edit the file at any time. Over SSH, use `-t` so the editor gets a terminal:
+
+```bash
+ssh -t <server> nano ~/token-tally-office/names.txt
+```
+
+In nano, press Ctrl+O and Enter to save, then Ctrl+X to exit. The office checks the file every 30 seconds, and when it changes, everyone on shift gets a new name tag, including their desk nameplate.
 
 - **Deploys never touch it:** `names.txt` isn't in git.
 - **Back to the built-in names:** delete the file, or leave it empty.

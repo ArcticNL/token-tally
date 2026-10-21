@@ -28,6 +28,23 @@ curl -s http://127.0.0.1:8390/state
 
 Build test events with `json.dumps` rather than typing JSON in the shell. Windows paths with backslashes are easy to break by hand.
 
+To test the cast, put a `names.txt` next to `server.py` (it's gitignored, so it can't be committed by accident):
+
+```
+Manager: Ms. Example
+Manager says: Is there a ticket for this?
+Alice
+Bob
+```
+
+`curl -s http://127.0.0.1:8377/names` shows what the server reads. In the browser, `await tokenTally.loadNames()` applies it at once, so you don't wait the 30 s. To make the Manager walk over, set a worker idle with an old `last` time and advance the simulation:
+
+```js
+const a = [...tokenTally.actors.values()].find((x) => x.info && x.desk);
+a.info = { ...a.info, status: 'idle', last: Date.now() / 1000 - 300 }; a.stayUntil = 0;
+tokenTally.advance(15);
+```
+
 ## Debugging in the browser
 
 `window.tokenTally` is exposed in the dev console:
@@ -59,7 +76,8 @@ Build test events with `json.dumps` rather than typing JSON in the shell. Window
 | CRT screens | canvas textures: `off`, `work`, `mines`, `wait` |
 | floor plan | `buildFloor`, `buildWalls`, `cubicleRow`, `buildBench`, `buildStations`. The station spots live in `ST` and `SPOTS`. |
 | people | `makePerson()` builds a seeded random worker, `POSES` holds the animations, `Actor` handles walking, routing, labels and props |
-| behaviour | `intent()` maps status → place, animation and label; `think()` applies the linger rules; `bossBrain()` drives the Manager |
+| behaviour | `intent()` maps status → place, animation and label; `think()` applies the linger rules; `bossBrain()` drives the Manager (he says a random line from `MANAGER_SAYS`) |
+| names | `DEFAULT_NAMES` and `DEFAULT_MANAGER`; `nameFor()` deals a name from the cast by session ID; `loadNames()` reads `/names` and re-deals when it changes |
 | sync and HUD | `sync()` diffs snapshots into arrivals, departures and memos; roster, personnel file, taskbar, Start menu |
 | feed | `connect()` (SSE), `DemoShift`, `setSource()` |
 | loop | `step()` simulates and renders; `frame()` throttles it in lite mode |

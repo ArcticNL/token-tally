@@ -18,6 +18,7 @@ If a `CLAUDE.local.md` exists, it describes this particular install (addresses, 
 - **Never commit secrets or personal details.**
   - `hook.key` (server), `office.env` (server) and `relay.json` (each PC's `~/.claude/token-tally/`) are gitignored. Never print the key.
   - Shared files use placeholders like `<office-address>`, never real IPs, hostnames or usernames.
+  - `names.txt` (server, gitignored) is the user's cast: worker names, `Manager:` and `Manager says:` lines. It may hold real people's names. Never commit it or copy its contents into code, docs or commit messages; generic examples only. Change the cast by editing that file, not the code.
 - Python stays **standard library only**: it has to run on a Pi and on any PC Claude Code runs on.
 - No build step on the front end. three.js r169 lives in `static/vendor/` with its MIT licence, so the kiosk works offline. Don't switch to a CDN. Keep `THIRD-PARTY-NOTICES.md` current when adding anything third-party.
 - Don't add other people's assets, logos or trademarks (game names, OS logos). Everything visual is drawn in code.

@@ -19,6 +19,7 @@ Anyone who can open your office's address can watch it, including the prompt fir
 
 - Don't forward port 8377 on your router or expose it to the internet.
 - For access away from home, use Tailscale, which keeps it encrypted and private to your devices.
+- **Your cast is visible too:** the names and Manager lines in `names.txt` are served at `/names` to anyone who can open the office. If you use real people's names, they're as visible as the rest of the page. They never go into git, because `names.txt` is gitignored. Keep it that way, and don't paste them into shared files either.
 
 ## Who can post events
 

@@ -70,6 +70,7 @@ Every second, `tick()` does the following:
   - Desk screens switch between work, a Mines game and "Allow?".
 - **Poses:** each animation is a function returning target joint angles, and the worker blends towards it every frame. That gives smooth sitting, standing and walking for free.
 - **The Manager** is a non-agent character. Every 5 s he looks for someone who has been playing Mines at their desk and hasn't been inspected for 90 s. He walks behind them and says one of his lines: "Ahem." by default, or a random `Manager says:` line from `names.txt`.
+- **Names:** each worker's name is picked from the cast by a hash of their session ID, so it stays the same while they're on shift. `loadNames()` fetches `/names` at start and every 30 s. When the cast changes, it re-deals everyone's name tags and desk nameplates and renames the Manager. Without a `names.txt`, the built-in names, Mr. Pemberton and "Ahem." are used.
 - **The HUD** is plain HTML in a retro 1990s desktop style: the roster, personnel files, sticky-note memos, the taskbar and the Start menu.
 - **Demo shift** is a client-side simulator producing the same agent shape as the server.
 - **Low quality mode** (`?lite`) turns off shadows and antialiasing, renders at 1× resolution and caps the frame rate at about 30 fps.
@@ -82,6 +83,7 @@ Every second, `tick()` does the following:
 | `/kit/hook_relay.py` | GET | the relay, served from the project root for the installer |
 | `/events` | GET | Server-Sent Events: the full agent list whenever it changes, plus a ping every 15 s |
 | `/state` | GET | the same snapshot once, as JSON |
+| `/names` | GET | the cast from `names.txt`: `{"names": [...], "manager": "...", "says": [...]}`; empty values mean the built-in cast |
 | `/hook` | POST | one hook event; needs `X-Token-Tally-Key` when the server has a key |
 
 The default port is 8377. Requests whose `Host` isn't one of the allowed names get a 403. That guards against DNS rebinding.

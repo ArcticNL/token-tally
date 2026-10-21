@@ -22,6 +22,15 @@
 - **Workers stay on shift up to 60 minutes** after their last activity, and temps leave 45 s after finishing. A session that crashed without a `SessionEnd` clocks out after that hour.
 - **To clear everyone now:** `systemctl --user restart token-tally`. The office rebuilds as events come in.
 
+## Names or the Manager didn't change
+
+- **Give it 30 seconds,** or reload the page. The office re-reads `names.txt` on that schedule.
+- **Check what the server reads:** `curl http://<office-address>:8377/names`.
+  - Empty `names` means the file is missing, empty, or in the wrong folder. It must sit next to `server.py`, in `~/token-tally-office`.
+  - If a name shows up as a worker called "Manager: …", the server is older than the cast feature. Deploy the latest `main`.
+- **Spelling:** the special lines are `Manager:` and `Manager says:`, with the colon. Case doesn't matter.
+- **"Standard input is not a terminal"** when editing over SSH: nano needs a terminal, so add `-t`, as in `ssh -t <server> nano ~/token-tally-office/names.txt`. Nano opens the file and quits straight away without it, but the file isn't changed.
+
 ## The tablet stutters
 
 - Use `?lite`, or Start menu → Low quality mode.

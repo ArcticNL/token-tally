@@ -14,7 +14,10 @@ Placeholders used below:
 
 ## The layout on the server
 
-- **`~/token-tally-office`:** the running office, a checkout of the git repo below. `hook.key` and `office.env` live here and aren't in git.
+- **`~/token-tally-office`:** the running office, a checkout of the git repo below. Three files live here that aren't in git:
+  - `hook.key`: the office key.
+  - `office.env`: this server's settings.
+  - `names.txt` (optional): your own worker and Manager names. See [tablet-kiosk.md](tablet-kiosk.md#changing-the-workers-names).
 - **`~/git/token-tally-office.git`:** a bare repo. A push to its `main` deploys.
 - **`~/.config/systemd/user/token-tally.service`:** the office, with linger on so it runs at boot without anyone logged in.
 - **`~/.config/systemd/user/token-tally-pull.timer`** (optional): deploys new commits from GitHub.
@@ -107,7 +110,7 @@ How it decides, every 2 minutes:
 2. If GitHub is **strictly ahead** of what's live (`refs/office/live`), it moves `main` there and deploys.
 3. If GitHub is **behind** (you pushed to the server first), nothing happens. If the two have **diverged**, it refuses, logs why once, and the unit shows as failed. Merge, then push the result to both remotes.
 
-It never deploys an older commit, and never touches `hook.key` or `office.env`.
+It never deploys an older commit, and never touches `hook.key`, `office.env` or `names.txt`.
 
 Setting it up:
 - On the server, make a key just for GitHub:
@@ -174,7 +177,11 @@ After changing `office.env`, run `systemctl --user restart token-tally`.
 
 ## Starting over on a new server
 
-Set up the new server with the steps above, pushing from any clone. The hook key is the one thing that isn't in git: make a new one, then run the installer again on each PC.
+Set up the new server with the steps above, pushing from any clone. The files that aren't in git need recreating:
+
+- **`hook.key`:** make a new one, then run the installer again on each PC.
+- **`office.env`:** copy `pi/office.env.example` again and fill in the new addresses.
+- **`names.txt`:** copy it over from the old server if you still can, or write it again. Keep a copy somewhere safe if your names matter to you, because no backup includes it.
 
 ## Rotating the key
 
