@@ -587,8 +587,8 @@ const lensMat = new THREE.MeshLambertMaterial({ color: '#cfe8f2', transparent: t
 function makePerson(seed, boss, temp) {
   const r = mulberry32(seed);
   const pick = (a) => a[Math.floor(r() * a.length)];
-  const skin = pick(SKIN);
-  const hair = boss ? '#8a8a8a' : pick(HAIR);
+  const skin = boss ? '#fbe4d3' : pick(SKIN);
+  const hair = boss ? '#b4b4b4' : pick(HAIR);
   const shirt = boss ? '#f4f1ea' : pick(SHIRTS);
   const jacket = boss ? '#2b2f3d' : r() < 0.2 ? pick(['#4a3b2f', '#3e4a5c', '#5b2f3a']) : null;
   const pants = boss ? '#2b2f3d' : pick(PANTS);
@@ -630,15 +630,28 @@ function makePerson(seed, boss, temp) {
   }
   box(0.06, 0.09, 0.06, skin, 0, 0.19, 0.22, head);
   box(0.13, 0.025, 0.02, '#6e3428', 0, 0.14, 0.2, head);
-  const style = boss ? 2 : Math.floor(r() * 5);
-  if (style === 0) { box(0.44, 0.09, 0.42, hair, 0, 0.5, 0, head); box(0.44, 0.3, 0.06, hair, 0, 0.22, -0.2, head); }
+  const style = boss ? 0 : Math.floor(r() * 5);
+  if (style === 0) {
+    box(0.44, 0.09, 0.42, hair, 0, 0.5, 0, head); box(0.44, 0.3, 0.06, hair, 0, 0.22, -0.2, head);
+    if (boss) for (const s of [-1, 1]) box(0.03, 0.2, 0.24, hair, s * 0.215, 0.32, -0.07, head); // grey at the temples
+  }
   if (style === 1) { box(0.44, 0.18, 0.42, hair, 0, 0.48, 0, head); box(0.44, 0.3, 0.06, hair, 0, 0.22, -0.2, head); }
   if (style === 2) { for (const s of [-1, 1]) box(0.03, 0.16, 0.3, hair, s * 0.215, 0.28, -0.04, head); box(0.44, 0.2, 0.05, hair, 0, 0.24, -0.2, head); }
   if (style === 3) { box(0.45, 0.1, 0.43, hair, 0, 0.5, 0, head); box(0.46, 0.62, 0.08, hair, 0, -0.04, -0.21, head); for (const s of [-1, 1]) box(0.05, 0.36, 0.32, hair, s * 0.23, 0.18, -0.04, head); }
   if (style === 4) { box(0.52, 0.24, 0.5, hair, 0, 0.42, -0.01, head); box(0.52, 0.4, 0.12, hair, 0, 0.1, -0.2, head); for (const s of [-1, 1]) box(0.07, 0.28, 0.38, hair, s * 0.25, 0.2, -0.02, head); }
   if ((boss || r() < 0.22) && style < 3) box(0.18, 0.04, 0.03, hair, 0, 0.165, 0.215, head);
   if (boss || r() < 0.35) {
-    for (const s of [-1, 1]) { box(0.15, 0.11, 0.015, '#2b2b2b', s * 0.1, 0.25, 0.21, head); box(0.11, 0.07, 0.02, lensMat, s * 0.1, 0.27, 0.218, head); }
+    // Rims round each eye (open in the middle, so the eyes show), a bridge, and arms back to the ears.
+    const rim = '#1e1e1e', t = 0.018, w = 0.14, h = 0.1, y0 = 0.285, z = 0.217;
+    for (const s of [-1, 1]) {
+      const cx = s * 0.095;
+      box(w, t, 0.012, rim, cx, y0 + h - t, z, head);
+      box(w, t, 0.012, rim, cx, y0, z, head);
+      for (const e of [-1, 1]) box(t, h, 0.012, rim, cx + e * (w - t) / 2, y0, z, head);
+      box(w - 2 * t, h - 2 * t, 0.004, lensMat, cx, y0 + t, z - 0.003, head);
+      box(0.012, t, 0.21, rim, s * 0.216, y0 + h - t, 0.11, head);
+    }
+    box(0.05, t, 0.012, rim, 0, y0 + h * 0.55, z, head);
   }
   const props = {
     mug: cyl(0.05, 0.045, 0.1, '#f5f3ee', 0, -0.47, 0.05, elbows[1], 8),
