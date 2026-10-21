@@ -10,3 +10,6 @@ settings.json.bak-*
 
 # This machine's office settings (see pi/office.env.example)
 office.env
+
+# Your own worker names, one per line (see docs/tablet-kiosk.md)
+names.txt

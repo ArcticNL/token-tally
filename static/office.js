@@ -573,8 +573,10 @@ buildBench();
 buildStations();
 
 // ---------------------------------------------------------------- people
-const NAMES = ['Gary', 'Linda', 'Trevor', 'Deborah', 'Kevin', 'Sandra', 'Nigel', 'Brenda', 'Darren', 'Tracy', 'Keith', 'Janet', 'Malcolm',
+// The built-in staff. A names.txt next to server.py replaces them live (see loadNames).
+const DEFAULT_NAMES = ['Gary', 'Linda', 'Trevor', 'Deborah', 'Kevin', 'Sandra', 'Nigel', 'Brenda', 'Darren', 'Tracy', 'Keith', 'Janet', 'Malcolm',
   'Sharon', 'Clive', 'Wendy', 'Barry', 'Denise', 'Graham', 'Lorraine', 'Derek', 'Pauline', 'Russell', 'Yvonne', 'Colin', 'Beverley'];
+let NAMES = DEFAULT_NAMES;
 const SHIRTS = ['#9db7d8', '#e2c46b', '#5f9e8f', '#a4504f', '#e2dccb', '#8a7fb3', '#e39b7b', '#6f8f4e', '#f0e6d2', '#4f6f9a', '#c77fa0'];
 const PANTS = ['#2d3346', '#4a4d55', '#6b5a43', '#3b3b3b', '#7a6d58'];
 const TIES = ['#7a1f2b', '#1f3a7a', '#2f6b3a', '#b08a2a', '#5a2a6b'];
@@ -884,6 +886,36 @@ function nameFor(id) {
   const used = usedNames(), h = hash(id);
   for (let i = 0; i < NAMES.length; i++) { const n = NAMES[(h + i) % NAMES.length]; if (!used.has(n)) return n; }
   return NAMES[h % NAMES.length] + ' ' + String.fromCharCode(65 + (h % 26)) + '.';
+}
+
+// names.txt on the server can be edited at any time; the office checks it every 30 seconds
+// and renames everyone on shift when it changes.
+let namesKey = null;
+async function loadNames() {
+  let list;
+  try {
+    const r = await fetch('names', { cache: 'no-store' });
+    if (!r.ok) return;
+    list = await r.json();
+  } catch { return; } // offline, or no server (opened as a file): keep the current names
+  const next = Array.isArray(list) && list.length ? list.map(String) : DEFAULT_NAMES;
+  const key = next.join('\n');
+  if (key === namesKey) return;
+  const changed = namesKey !== null;
+  namesKey = key;
+  NAMES = next;
+  const staff = [...actors.values()].filter((a) => a !== boss && !a.leaving);
+  if (!staff.length) return;
+  for (const a of staff) a.name = null; // free every name so they can be handed out again
+  for (const a of staff) {
+    a.name = nameFor(a.id);
+    if (a.desk?.plaque) redraw(a.desk.plaque, drawPlate(a.name.toUpperCase(), false));
+  }
+  eotmKey = '';
+  updateEotm(source === 'demo' ? [...actors.values()].filter((a) => a.info).map((a) => a.info) : live.agents);
+  renderRoster();
+  renderFile();
+  if (changed) memo('New name tags have been handed out.');
 }
 
 function sync(list) {
@@ -1216,12 +1248,14 @@ function frame() {
   requestAnimationFrame(frame);
 }
 // Handy from the dev console; advance() fast-forwards the floor when the tab is in the background.
-window.tokenTally = { actors, deskSlots, camera, controls, advance(sec) { for (let i = 0; i < sec * 30; i++) step(1 / 30, false); step(0); } };
+window.tokenTally = { actors, deskSlots, camera, controls, loadNames, advance(sec) { for (let i = 0; i < sec * 30; i++) step(1 / 30, false); step(0); } };
 
 setConn();
 renderRoster();
 document.querySelector('[data-cmd="lite"]').textContent = LITE ? 'High quality mode' : 'Low quality mode';
 if (params.has('demo')) setSource('demo');
+loadNames();
+setInterval(loadNames, 30000);
 connect();
 setTimeout(() => { if (!live.everConnected && source === 'live') { memo('Can’t reach the office server, so here’s a demo shift.'); setSource('demo'); } }, 3000);
 requestAnimationFrame(frame);

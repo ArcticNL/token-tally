@@ -41,3 +41,20 @@ If the tablet is locked in Fully Kiosk, allow the Claude app in Fully Kiosk's ap
 - **Sticky notes** (top right): arrivals, departures, "needs your sign-off", and the Manager catching someone.
 - **The taskbar**: counts of working, waiting, on break and slacking workers; a **Live · hooks on** indicator; the clock.
 - **Mr. Pemberton**: walks over to anyone idle for 2+ minutes playing Mines.
+
+## Changing the workers' names
+
+Each session gets a name picked from a list. The pick comes from the session's ID, so a session keeps its name while it's on shift. To use your own names, create `names.txt` in the office folder on the server, next to `server.py`, with one name per line:
+
+```
+# Lines starting with # are ignored
+Alice
+Bob
+Charlie
+```
+
+You can edit the file at any time, for example with `nano names.txt` over SSH. The office checks it every 30 seconds, and when it changes, everyone on shift gets a new name tag, including their desk nameplate.
+
+- **Deploys never touch it:** `names.txt` isn't in git.
+- **Back to the built-in names:** delete the file, or leave it empty.
+- **Limits:** names are cut to 24 characters, and duplicates are skipped. With more workers than names, extras get an initial, such as "Alice B.".

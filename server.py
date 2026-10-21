@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
+NAMES_FILE = ROOT / "names.txt"  # optional: one worker name per line, read live, never in git
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 PROJECTS = CLAUDE_DIR / "projects"
 
@@ -96,6 +97,20 @@ def parse_ts(value, default):
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
     except ValueError:
         return default
+
+
+def read_names():
+    """Worker names from names.txt: one per line, '#' starts a comment. Empty list = use the built-in names."""
+    try:
+        lines = NAMES_FILE.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return []
+    names = []
+    for line in lines:
+        name = line.split("#", 1)[0].strip()[:24]
+        if name and name not in names:
+            names.append(name)
+    return names[:200]
 
 
 class Agent:
@@ -440,6 +455,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.events()
         if path == "/state":
             return self.send(200, office.payload().encode(), "application/json")
+        if path == "/names":
+            return self.send(200, json.dumps(read_names()).encode(), "application/json")
         if path == "/kit/hook_relay.py":  # the installer fetches the one relay that lives in the project root
             return self.send(200, (ROOT / "hook_relay.py").read_bytes(), TYPES[".py"])
         if path == "/kit/install_relay.py":
