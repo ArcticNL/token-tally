@@ -40,7 +40,7 @@ If the tablet is locked in Fully Kiosk, allow the Claude app in Fully Kiosk's ap
 - **The personnel file**: their assignment, what they're doing now and for how long, and the last actions.
 - **Sticky notes** (top right): arrivals, departures, "needs your sign-off", and the Manager catching someone.
 - **The taskbar**: counts of working, waiting, on break and slacking workers; a **Live · hooks on** indicator; the clock.
-- **Mr. Pemberton**: walks over to anyone idle for 2+ minutes playing Mines.
+- **The Manager** (Mr. Pemberton unless you rename him): walks over to anyone idle for 2+ minutes playing Mines and has a word.
 
 ## Changing the workers' names
 
@@ -57,4 +57,18 @@ You can edit the file at any time, for example with `nano names.txt` over SSH. T
 
 - **Deploys never touch it:** `names.txt` isn't in git.
 - **Back to the built-in names:** delete the file, or leave it empty.
+
+### The Manager
+
+Two special kinds of line rename the Manager and set what he says when he catches someone slacking:
+
+```
+Manager: Ms. Example
+Manager says: Shouldn't you be filing something?
+Manager says: Is there a ticket for this?
+```
+
+- **Several "Manager says" lines:** he picks one at random each time he walks over.
+- **Without these lines:** he's Mr. Pemberton and says "Ahem."
+- **Live, like the worker names:** both update within 30 seconds, and his name is cut to 32 characters, each line to 100.
 - **Limits:** names are cut to 24 characters, and duplicates are skipped. With more workers than names, extras get an initial, such as "Alice B.".

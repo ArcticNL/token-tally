@@ -113,7 +113,7 @@
   .bubble { font: bold 15px/1 Tahoma, sans-serif; background: #fff; border: 2px solid #000; border-radius: 12px; padding: 3px 8px 4px; position: relative; pointer-events: none; }
   .bubble::after { content: ""; position: absolute; left: 50%; bottom: -8px; margin-left: -5px; border: 5px solid transparent; border-top: 6px solid #000; }
   .bubble.alert { background: #ffdf3b; animation: bob .7s ease-in-out infinite; }
-  .bubble.boss { background: #f1f1f1; font-size: 13px; }
+  .bubble.boss { background: #f1f1f1; font-size: 13px; line-height: 1.25; max-width: 230px; white-space: normal; text-align: center; }
   @keyframes bob { 50% { transform: translateY(-5px); } }
 
   @media (max-width: 720px) {

@@ -4,7 +4,7 @@ A 3D, 1990s office floor where every Claude Code agent is an office worker. Leav
 
 - **Specialists** are your Claude Code sessions. Each gets a cubicle with a nameplate.
 - **Temps** are subagents. They come in through the front door wearing a yellow badge, sit at the temp desks, and go home when they're done.
-- **Mr. Pemberton**, the Manager, sits in the glass office. He walks over to anyone slacking off.
+- **Mr. Pemberton**, the Manager, sits in the glass office. He walks over to anyone slacking off. You can rename him, and everyone else, and give him his own lines with a `names.txt` (see [docs/tablet-kiosk.md](docs/tablet-kiosk.md#changing-the-workers-names)).
 
 | What the agent is doing | What you see |
 | --- | --- |

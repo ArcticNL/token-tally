@@ -100,17 +100,28 @@ def parse_ts(value, default):
 
 
 def read_names():
-    """Worker names from names.txt: one per line, '#' starts a comment. Empty list = use the built-in names."""
+    """The cast from names.txt: one worker name per line, '#' starts a comment.
+
+    'Manager: <name>' names the Manager, and each 'Manager says: <line>' is something he
+    may say when he catches someone slacking. Anything left empty means the built-in cast.
+    """
+    cast = {"names": [], "manager": "", "says": []}
     try:
         lines = NAMES_FILE.read_text(encoding="utf-8-sig").splitlines()
     except OSError:
-        return []
-    names = []
-    for line in lines:
-        name = line.split("#", 1)[0].strip()[:24]
-        if name and name not in names:
-            names.append(name)
-    return names[:200]
+        return cast
+    for raw in lines:
+        line = raw.split("#", 1)[0].strip()
+        key, _, value = line.partition(":")
+        key, value = key.strip().lower(), value.strip()
+        if key == "manager says" and value:
+            cast["says"].append(value[:100])
+        elif key == "manager" and value:
+            cast["manager"] = value[:32]
+        elif line and line[:24] not in cast["names"]:
+            cast["names"].append(line[:24])
+    cast["names"], cast["says"] = cast["names"][:200], cast["says"][:20]
+    return cast
 
 
 class Agent:

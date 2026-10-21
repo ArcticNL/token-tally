@@ -855,8 +855,9 @@ function bossBrain(t) {
     const v = boss.victim;
     const stillSlacking = v && actors.has(v.id) && !v.walking && v.anim === 'slack';
     boss.anim = 'arms';
-    boss.label(`Keeping an eye on ${v?.name ?? 'someone'}`, 'Ahem.', 'boss');
-    if (t - boss.arrivedAt > 7 || !stillSlacking) { boss.mode = 'home'; boss.goTo(SPOTS.boss, 'home'); boss.label('Back to the office', null); }
+    boss.label(`Keeping an eye on ${v?.name ?? 'someone'}`, boss.catchLine, 'boss');
+    const stay = Math.max(7, 2 + boss.catchLine.length / 10); // long lines get time to be read
+    if (t - boss.arrivedAt > stay || !stillSlacking) { boss.mode = 'home'; boss.goTo(SPOTS.boss, 'home'); boss.label('Back to the office', null); }
     return;
   }
   boss.anim = 'type';
@@ -870,9 +871,14 @@ function bossBrain(t) {
   const behind = { x: s.x - Math.sin(s.face) * 0.85, z: s.z - Math.cos(s.face) * 0.85, face: s.face, via: s.via };
   boss.mode = 'inspect';
   boss.victim = victim;
+  boss.catchLine = MANAGER_SAYS[Math.floor(Math.random() * MANAGER_SAYS.length)];
   boss.goTo(behind, 'inspect');
   boss.label(`Walking over to ${victim.name}…`, null);
-  boss.onArrive = () => { victim.flusteredUntil = t + 99; setTimeout(() => { victim.flusteredUntil = 0; }, 4000); memo(`The Manager caught ${victim.name} playing Mines.`); };
+  boss.onArrive = () => {
+    victim.flusteredUntil = t + 99;
+    setTimeout(() => { victim.flusteredUntil = 0; }, 4000);
+    memo(`${boss.name} caught ${victim.name} playing Mines: “${boss.catchLine}”`);
+  };
 }
 
 // ---------------------------------------------------------------- syncing state
@@ -890,15 +896,29 @@ function nameFor(id) {
 
 // names.txt on the server can be edited at any time; the office checks it every 30 seconds
 // and renames everyone on shift when it changes.
-let namesKey = null;
+// It can also rename the Manager ("Manager: ...") and give him things to say ("Manager says: ...").
+const DEFAULT_MANAGER = 'Mr. Pemberton', DEFAULT_SAYS = ['Ahem.'];
+let MANAGER_SAYS = DEFAULT_SAYS;
+let namesKey = null, managerKey = null;
 async function loadNames() {
-  let list;
+  let cast;
   try {
     const r = await fetch('names', { cache: 'no-store' });
     if (!r.ok) return;
-    list = await r.json();
+    cast = await r.json();
   } catch { return; } // offline, or no server (opened as a file): keep the current names
-  const next = Array.isArray(list) && list.length ? list.map(String) : DEFAULT_NAMES;
+  if (Array.isArray(cast)) cast = { names: cast }; // an older server sends just the list
+  const says = Array.isArray(cast?.says) && cast.says.length ? cast.says.map(String) : DEFAULT_SAYS;
+  const managerName = cast?.manager ? String(cast.manager) : DEFAULT_MANAGER;
+  const mKey = managerName + '\n' + says.join('\n');
+  if (mKey !== managerKey) {
+    const renamed = managerKey !== null && boss && boss.name !== managerName;
+    managerKey = mKey;
+    MANAGER_SAYS = says;
+    if (boss) boss.name = managerName;
+    if (renamed) memo(`${managerName} is the new manager.`);
+  }
+  const next = Array.isArray(cast?.names) && cast.names.length ? cast.names.map(String) : DEFAULT_NAMES;
   const key = next.join('\n');
   if (key === namesKey) return;
   const changed = namesKey !== null;
@@ -1193,7 +1213,7 @@ function resize() {
 addEventListener('resize', resize);
 resize();
 
-boss = new Actor('manager', { name: 'Mr. Pemberton', boss: true, seed: 1994 });
+boss = new Actor('manager', { name: DEFAULT_MANAGER, boss: true, seed: 1994 });
 boss.root.position.set(SPOTS.boss.x, 0, SPOTS.boss.z);
 boss.at = boss.target = SPOTS.boss;
 boss.root.rotation.y = boss.heading = 0;

@@ -69,7 +69,7 @@ Every second, `tick()` does the following:
   - A worker who is only thinking stays where they are rather than walking back to the desk.
   - Desk screens switch between work, a Mines game and "Allow?".
 - **Poses:** each animation is a function returning target joint angles, and the worker blends towards it every frame. That gives smooth sitting, standing and walking for free.
-- **The Manager** is a non-agent character. Every 5 s he looks for someone who has been playing Mines at their desk and hasn't been inspected for 90 s. He walks behind them and says "Ahem."
+- **The Manager** is a non-agent character. Every 5 s he looks for someone who has been playing Mines at their desk and hasn't been inspected for 90 s. He walks behind them and says one of his lines: "Ahem." by default, or a random `Manager says:` line from `names.txt`.
 - **The HUD** is plain HTML in a retro 1990s desktop style: the roster, personnel files, sticky-note memos, the taskbar and the Start menu.
 - **Demo shift** is a client-side simulator producing the same agent shape as the server.
 - **Low quality mode** (`?lite`) turns off shadows and antialiasing, renders at 1× resolution and caps the frame rate at about 30 fps.
