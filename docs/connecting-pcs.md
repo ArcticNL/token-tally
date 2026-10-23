@@ -83,6 +83,18 @@ On a work machine, check your IT policy before installing VPN software like Tail
 
 The other events follow the same pattern. `"async": true` means Claude Code never waits for the relay. The relay prints nothing and always exits 0, so it can never block a tool or answer a permission prompt.
 
+## Upgrading
+
+After you update the office itself, run the installer again on every PC, the same way as above. That fetches the matching relay and keeps your settings, name and key.
+
+**Coming from a version before 2026-10-23**, this is required. Since then, events are signed and the office refuses relays that still send the key in plain text ("Run the installer again to update it"). Those older relays sent the key in every event, so after updating every PC, also rotate the key: see [pi-server.md](pi-server.md#rotating-the-key).
+
+Away from home, the installer downloads the relay from its `--server` address. Point that at the office's Tailscale address and add the home one as a fallback:
+
+```bash
+python install_relay.py --server http://<tailscale-ip>:8377 --extra-url http://<office-address>:8377 --name "Laptop"
+```
+
 ## Removing it
 
 ```bash

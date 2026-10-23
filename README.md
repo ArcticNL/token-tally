@@ -72,7 +72,9 @@ static/kit/install_relay.py   one-command installer the server hands to new PCs
 pi/                     server files: systemd units, office.env.example, deploy scripts and hook
 scripts/deploy-pi.sh    push to the server and check the office came back up
 start-office.bat        double-click launcher for a local Windows run
+tests/                  test_signing.py (the /hook security) and test_office_state.py (what the office shows)
 CLAUDE.md               working rules Claude Code reads when you work on this project
+CHANGELOG.md            what changed, and what to do when upgrading
 docs/                   everything else
 ```
 
@@ -85,6 +87,7 @@ docs/                   everything else
 - [Security](docs/security.md): what leaves your PC, who can see what, the keys
 - [Development](docs/development.md): running locally, code map, adding a station, testing
 - [Troubleshooting](docs/troubleshooting.md)
+- [Changelog](CHANGELOG.md): read it before upgrading; since 2026-10-23, every PC needs the installer run again
 
 ## Licence and credits
 

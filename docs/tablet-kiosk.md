@@ -41,6 +41,7 @@ If the tablet is locked in Fully Kiosk, allow the Claude app in Fully Kiosk's ap
 - **Sticky notes** (top right): arrivals, departures, "needs your sign-off", and the Manager catching someone.
 - **The taskbar**: counts of working, waiting, on break and slacking workers; a **Live · hooks on** indicator; the clock.
 - **The Manager** (grey hair, glasses, dark suit; Mr. Pemberton unless you rename him): walks over to anyone idle for 2+ minutes playing Mines and says one of his lines. The worker jumps ("!?"), and a sticky note records what he said.
+- **The maintenance man** (blue overalls, red cap, toolbox): comes in every quarter hour, fixes the copier and the coffee machine, and leaves. He's not an agent, so he's not in the roster.
 
 ## Changing the workers' names
 
