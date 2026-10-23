@@ -2,7 +2,9 @@
 
 The container is the simplest way to run the office on an always-on machine: a home server, a NAS or a Raspberry Pi. It replaces the systemd setup in [pi-server.md](pi-server.md). PCs still need the relay ([connecting-pcs.md](connecting-pcs.md)), because it has to run inside each PC's Claude Code hooks.
 
-You need Docker with the Compose plugin ([install Docker Engine](https://docs.docker.com/engine/install/)). A Raspberry Pi needs a 64-bit OS.
+You need Docker with the Compose plugin ([install Docker Engine](https://docs.docker.com/engine/install/)). A Raspberry Pi needs a 64-bit OS. On Debian or Raspberry Pi OS, the distribution's own packages are enough: `sudo apt install docker.io docker-compose`.
+
+Tested on a Raspberry Pi 3 Model B (1 GB RAM, Debian 13, 64-bit) with Docker 26.1 and Compose 2.26. The first build there takes about 80 seconds, and the image is about 145 MB.
 
 ## Start it
 

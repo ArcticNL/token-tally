@@ -5,6 +5,7 @@
 - **Docker.** Run the office with `docker compose up -d` (see [docs/docker.md](docs/docker.md)). On the first start it creates its own key in a data volume. It reads settings from `.env` and names from an optional `names.txt`. It runs as an unprivileged user, read-only, with a health check.
 - `server.py --names-file PATH` picks where the cast file lives (default: `names.txt` next to `server.py`).
 - `tests/test_container_start.py` checks the container's start-up without needing Docker.
+- Tested in real Docker on a Raspberry Pi 3: build, health check, signed events, names, clean `docker stop`, and the key surviving restarts.
 
 ## 2026-10-23
 
