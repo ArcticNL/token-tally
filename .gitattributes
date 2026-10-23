@@ -9,3 +9,7 @@
 .gitattributes text eol=lf
 .gitignore text eol=lf
 pi/* text eol=lf
+Dockerfile text eol=lf
+*.yaml text eol=lf
+.env.example text eol=lf
+.dockerignore text eol=lf
