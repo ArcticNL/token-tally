@@ -45,7 +45,7 @@ Nothing leaves your computer: the server only listens on `127.0.0.1`.
 
 If you want the office running all the time, shown on a wall tablet, with several PCs reporting to it:
 
-1. [Run the server on a Raspberry Pi or another always-on box](docs/pi-server.md)
+1. Run the server on an always-on box. The simplest way is Docker: copy `.env.example` to `.env`, set your address, and run `docker compose up -d` (see [docs/docker.md](docs/docker.md)). Without Docker, use the systemd setup in [docs/pi-server.md](docs/pi-server.md), which can also auto-deploy from GitHub.
 2. [Connect each PC](docs/connecting-pcs.md): one command per PC
 3. [Turn a tablet into the office display](docs/tablet-kiosk.md)
 
@@ -72,7 +72,8 @@ static/kit/install_relay.py   one-command installer the server hands to new PCs
 pi/                     server files: systemd units, office.env.example, deploy scripts and hook
 scripts/deploy-pi.sh    push to the server and check the office came back up
 start-office.bat        double-click launcher for a local Windows run
-tests/                  test_signing.py (the /hook security) and test_office_state.py (what the office shows)
+Dockerfile, compose.yaml, .env.example, docker/   the container (see docs/docker.md)
+tests/                  the /hook security, what the office shows, and the container's start-up
 CLAUDE.md               working rules Claude Code reads when you work on this project
 CHANGELOG.md            what changed, and what to do when upgrading
 docs/                   everything else
@@ -81,7 +82,8 @@ docs/                   everything else
 ## Documentation
 
 - [Architecture](docs/architecture.md): data flow, the hook events, how statuses become behaviour
-- [Server](docs/pi-server.md): install, service, settings, updating, auto-deploy from GitHub
+- [Docker](docs/docker.md): run the office in a container with one command
+- [Server](docs/pi-server.md): install without Docker, service, settings, updating, auto-deploy from GitHub
 - [Connecting PCs](docs/connecting-pcs.md): the installer, Tailscale, uninstalling
 - [Tablet kiosk](docs/tablet-kiosk.md): Fully Kiosk, low quality mode, approvals
 - [Security](docs/security.md): what leaves your PC, who can see what, the keys

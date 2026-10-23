@@ -618,6 +618,7 @@ def run_loop():
 
 
 def main():
+    global HOOK_KEY, NAMES_FILE
     parser = argparse.ArgumentParser(description="A 1990s office for your Claude Code agents.")
     parser.add_argument("--port", type=int, default=8377)
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on; 0.0.0.0 for the whole home network")
@@ -628,11 +629,13 @@ def main():
     parser.add_argument("--extra-url", action="append", default=[], metavar="URL",
                         help="another address of this office, e.g. http://<tailscale-ip>:8377; "
                              "PCs set up with the installer fall back to it (repeatable)")
+    parser.add_argument("--names-file", type=Path, default=NAMES_FILE,
+                        help="the cast file (worker names, Manager and Maintenance lines); default names.txt next to server.py")
     parser.add_argument("--open", action="store_true", help="open the office in your browser")
     args = parser.parse_args()
 
     EXTRA_URLS.extend(u.rstrip("/") for u in args.extra_url)
-    global HOOK_KEY
+    NAMES_FILE = args.names_file
     if args.hook_key_file:
         HOOK_KEY = args.hook_key_file.read_text(encoding="utf-8").strip()
     if args.host not in ("127.0.0.1", "localhost", "::1") and not HOOK_KEY:

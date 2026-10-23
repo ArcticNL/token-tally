@@ -1,0 +1,21 @@
+# Only the app goes into the image: never keys, names or your settings.
+.git
+.gitignore
+.gitattributes
+.env
+.env.*
+hook.key
+relay.json
+office.env
+names.txt
+CLAUDE*.md
+CLAUDE-SECURITY-*
+docs
+tests
+pi
+scripts
+start-office.bat
+compose.yaml
+Dockerfile
+**/__pycache__
+**/*.pyc

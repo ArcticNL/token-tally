@@ -11,7 +11,11 @@ If a `CLAUDE.local.md` exists, it describes this particular install (addresses, 
   - `scripts/deploy-pi.sh` pushes to a `pi` remote, which deploys instantly.
   - The server can also deploy new commits from GitHub by itself (`token-tally-pull.timer`). In that setup, **any push to `main` goes live**, so ask the user before pushing a change they haven't seen. Use a branch for work in progress, and never force-push `main`: the server refuses diverged history.
 - Both deploy paths run `pi/deploy.sh` from the commit being deployed. `pi/post-receive` and the `pi/*.service`/`*.timer` units are copies installed on the server. After changing them, copy them again (docs/pi-server.md).
-- Before deploying, run `python tests/test_signing.py` and `python tests/test_office_state.py`. Both must pass. Add a check to them when you change `/hook`, signing, or how statuses become what the office shows.
+- Before deploying:
+  - Run `python -m py_compile server.py hook_relay.py docker/entrypoint.py static/kit/install_relay.py`. A parse-only check misses some errors, such as a `global` after first use.
+  - Run `python tests/test_signing.py`, `python tests/test_office_state.py` and `python tests/test_container_start.py`. All must pass.
+  - Add a check to them when you change `/hook`, signing, how statuses become what the office shows, or the container's start-up.
+- The container (`Dockerfile`, `compose.yaml`, `docker/entrypoint.py`) must keep running as the unprivileged user with a read-only filesystem. Keep `.dockerignore` excluding keys, `names.txt`, `.env` and `.git`.
 - Note user-visible changes in `CHANGELOG.md`. Say there when an upgrade needs action, such as running the installer again on every PC.
 - Commit messages end with a `Co-Authored-By:` trailer for the Claude model.
 

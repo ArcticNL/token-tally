@@ -1,0 +1,29 @@
+# Run the office with:   docker compose up -d
+# Settings go in .env next to this file (copy .env.example). See docs/docker.md.
+services:
+  office:
+    build: .
+    image: token-tally-office:latest
+    container_name: token-tally
+    restart: unless-stopped
+    init: true
+    ports:
+      - "8377:8377"
+    environment:
+      OFFICE_ALLOW_HOSTS: ${OFFICE_ALLOW_HOSTS:-}
+      OFFICE_EXTRA_URLS: ${OFFICE_EXTRA_URLS:-}
+    volumes:
+      - office-data:/data
+      # Your own worker, Manager and Maintenance names, editable live (see docs/tablet-kiosk.md):
+      # - ./names.txt:/data/names.txt:ro
+    # Locked down: nothing but /data is writable, no extra privileges.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  office-data:

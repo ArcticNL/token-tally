@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Docker.** Run the office with `docker compose up -d` (see [docs/docker.md](docs/docker.md)). On the first start it creates its own key in a data volume. It reads settings from `.env` and names from an optional `names.txt`. It runs as an unprivileged user, read-only, with a health check.
+- `server.py --names-file PATH` picks where the cast file lives (default: `names.txt` next to `server.py`).
+- `tests/test_container_start.py` checks the container's start-up without needing Docker.
+
 ## 2026-10-23
 
 **Upgrading from an earlier version? Run the installer again on every PC.** Events are now signed, and the office refuses relays that still send the key in plain text (see [docs/connecting-pcs.md](docs/connecting-pcs.md#upgrading)).

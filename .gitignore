@@ -13,3 +13,6 @@ office.env
 
 # Your own worker names, one per line (see docs/tablet-kiosk.md)
 names.txt
+
+# Container settings (see .env.example)
+.env
