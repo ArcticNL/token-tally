@@ -34,6 +34,12 @@ To check the security of `/hook` after a change, run the end-to-end test. It sta
 python tests/test_signing.py
 ```
 
+To check how hook events turn into what the office shows (quick tools held on show, temps going home), run the state test. It drives the office's logic on a fake clock, so it takes under a second:
+
+```bash
+python tests/test_office_state.py
+```
+
 To test the cast, put a `names.txt` next to `server.py` (it's gitignored, so it can't be committed by accident):
 
 ```

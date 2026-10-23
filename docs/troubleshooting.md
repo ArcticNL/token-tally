@@ -19,7 +19,8 @@
 ## Someone is stuck as "waiting" or never leaves
 
 - **"Needs sign-off?" with a question mark** is a guess made only without hooks: a tool has run for more than 10 s. A long build triggers it too.
-- **Workers stay on shift up to 60 minutes** after their last activity, and temps leave 45 s after finishing. A session that crashed without a `SessionEnd` clocks out after that hour.
+- **Workers stay on shift up to 60 minutes** after their last activity. A session that crashed without a `SessionEnd` clocks out after that hour.
+- **Temps leave** 45 s after finishing, or after 90 s of silence when no tool is running and nothing waits on you. A temp that was only thinking for a long time walks back in with its next event.
 - **To clear everyone now:** `systemctl --user restart token-tally`. The office rebuilds as events come in.
 
 ## A PC's events are refused

@@ -34,7 +34,9 @@ PROJECTS = CLAUDE_DIR / "projects"
 ACTIVE_WINDOW = 60 * 60    # transcripts touched this recently count as "on shift"
 CLOCK_OUT_AFTER = 60 * 60  # main agents quiet this long go home
 TEMP_DONE_AFTER = 45       # finished subagents leave this long after their last line
+TEMP_QUIET_AFTER = 90      # a subagent this quiet, with no tool running and nothing waiting on you, is done
 TEMP_STALE_AFTER = 15 * 60 # subagents that just stop writing leave eventually too
+MIN_SHOW = 4               # seconds a tool's station stays on show, however fast the tool was
 WAIT_GUESS = 10            # a tool pending this long (no hooks) is probably awaiting approval
 TAIL_BYTES = 768 * 1024    # history to read from a transcript we have just found
 SCAN_EVERY = 1.0
@@ -185,22 +187,33 @@ class Agent:
         self.hooked = self.guess = False
         self.tools = 0
         self.log = deque(maxlen=10)
+        self.held, self.hold_until = None, 0.0  # the last tool, kept on show briefly (see public)
 
     def set(self, status, ts, task="", tool="", detail="", guess=False):
         if status != self.status:
             self.since = ts
         self.status, self.task, self.tool, self.detail, self.guess = status, task, tool, detail, guess
+        if status == "working":
+            self.held, self.hold_until = (task, tool, detail, self.since), ts + MIN_SHOW
 
     def show_pending(self, ts):
         name, task, detail, _ = max(self.pending.values(), key=lambda p: p[3])
         self.set("working", ts, task, name, detail)
 
-    def public(self):
+    def public(self, now=None):
+        # Most tools finish in milliseconds, faster than the office's one-second updates, so a
+        # worker would never leave their desk. Keep showing the last tool for MIN_SHOW seconds
+        # after it started, long enough to send them walking to its station. Waiting for your
+        # sign-off is never covered up.
+        status, task, tool, detail, since = self.status, self.task, self.tool, self.detail, self.since
+        now = time.time() if now is None else now
+        if self.held and status in ("thinking", "replying", "idle") and now < self.hold_until:
+            status, (task, tool, detail, since) = "working", self.held
         return {
             "id": self.id, "parent": self.parent, "temp": self.temp, "project": self.project,
             "cwd": self.cwd, "title": self.title, "assignment": self.assignment, "machine": self.machine,
-            "status": self.status, "task": self.task, "tool": self.tool, "detail": self.detail,
-            "guess": self.guess, "since": self.since, "last": self.last, "tools": self.tools,
+            "status": status, "task": task, "tool": tool, "detail": detail,
+            "guess": self.guess, "since": since, "last": self.last, "tools": self.tools,
             "log": list(self.log)[-8:],
         }
 
@@ -445,7 +458,11 @@ class Office:
                     a.set("idle", a.last)
                 if a.temp:
                     done = a.status == "idle" and quiet > TEMP_DONE_AFTER
-                    if done or quiet > TEMP_STALE_AFTER:
+                    # The "subagent finished" event doesn't always arrive, so a temp that's been
+                    # silent a while with nothing running and nothing waiting on you goes home too.
+                    # If it was only thinking long, it simply walks back in with its next event.
+                    gone_quiet = quiet > TEMP_QUIET_AFTER and not a.pending and a.status != "waiting"
+                    if done or gone_quiet or quiet > TEMP_STALE_AFTER:
                         del self.agents[aid]
                 elif quiet > CLOCK_OUT_AFTER:
                     del self.agents[aid]

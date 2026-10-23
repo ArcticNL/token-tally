@@ -57,7 +57,14 @@ Every second, `tick()` does the following:
 - Scans transcripts, if any.
 - Without hooks, guesses *waiting* for a typing, copier or phone tool still open after 10 s. It labels this "Needs sign-off?".
 - Turns a *replying* status into *idle* after 8 s of quiet.
-- Clocks people out: main agents after 60 min quiet; temps 45 s after finishing, or 15 min after going silent; and temps whose parent left.
+- Clocks people out:
+  - main agents after 60 min quiet
+  - temps 45 s after finishing
+  - temps quiet for 90 s with no tool running and nothing waiting on you, because the "subagent finished" event doesn't always arrive
+  - any temp after 15 min of silence
+  - temps whose parent left
+
+Separately, `Agent.public()` keeps a tool on show for at least `MIN_SHOW` (4 s) after it starts. Most tools finish in milliseconds, faster than the one-second updates, so without this a worker would almost never leave their desk. The hold never covers a *waiting* status.
 - If anything changed, broadcasts `{"now", "hooks", "agents": [...]}` to every `/events` client.
 
 ## The browser side (static/office.js)
