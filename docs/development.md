@@ -64,6 +64,7 @@ tokenTally.advance(15);
 - `tokenTally.actors`: every worker, with `info` (the server's record), `targetKey`, `anim` and `walking`.
 - `tokenTally.advance(seconds)`: fast-forwards the simulation and renders once. Browsers pause animation in background tabs, so use this when testing in a hidden tab or with automation.
 - `tokenTally.camera` and `tokenTally.controls`: move the camera.
+- `tokenTally.maintenance()`: start a maintenance visit now, instead of waiting for the next quarter hour. `tokenTally.crew` is the maintenance man while he's in.
 
 ## Code map
 

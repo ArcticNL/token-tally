@@ -78,3 +78,13 @@ Manager says: Is there a ticket for this?
 - **Without these lines:** he's Mr. Pemberton and says "Ahem."
 - **Live, like the worker names:** both update within 30 seconds, and his name is cut to 32 characters, each line to 100.
 - **Limits:** names are cut to 24 characters, and duplicates are skipped. With more workers than names, extras get an initial, such as "Alice B.".
+
+### The maintenance man
+
+Every quarter hour on the clock (:00, :15, :30 and :45), a maintenance man in blue overalls and a red cap comes in through the front door with his toolbox. He fixes the copier ("Paper jam again…"), then the coffee machine in the break room ("Who keeps putting tea in here?"), about 20 seconds each, and leaves again. Sticky notes mark his arrival and each repair. He follows the clock, so every screen showing the office sees the same visit. He isn't one of your agents, so he never shows in the roster.
+
+He's called Stan unless you add a line to `names.txt`:
+
+```
+Maintenance: Henk
+```

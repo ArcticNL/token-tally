@@ -584,17 +584,18 @@ const SKIN = ['#f1c9a5', '#e0ac7e', '#c68a5e', '#8d5a3b', '#f5d6bd', '#a8714a'];
 const HAIR = ['#2b1d14', '#5a3a22', '#a8763e', '#d9c27a', '#7d7d7d', '#151515', '#8a3b1c'];
 const lensMat = new THREE.MeshLambertMaterial({ color: '#cfe8f2', transparent: true, opacity: 0.35 });
 
-function makePerson(seed, boss, temp) {
+const OVERALLS = '#3d6f9f', CAP = '#c8312f';
+function makePerson(seed, boss, temp, crew = false) {
   const r = mulberry32(seed);
   const pick = (a) => a[Math.floor(r() * a.length)];
   const skin = boss ? '#fbe4d3' : pick(SKIN);
   const hair = boss ? '#b4b4b4' : pick(HAIR);
-  const shirt = boss ? '#f4f1ea' : pick(SHIRTS);
-  const jacket = boss ? '#2b2f3d' : r() < 0.2 ? pick(['#4a3b2f', '#3e4a5c', '#5b2f3a']) : null;
-  const pants = boss ? '#2b2f3d' : pick(PANTS);
-  const tie = boss ? '#9b1d24' : r() < 0.6 ? pick(TIES) : null;
+  const shirt = boss ? '#f4f1ea' : crew ? OVERALLS : pick(SHIRTS);
+  const jacket = boss ? '#2b2f3d' : crew ? null : r() < 0.2 ? pick(['#4a3b2f', '#3e4a5c', '#5b2f3a']) : null;
+  const pants = boss ? '#2b2f3d' : crew ? OVERALLS : pick(PANTS);
+  const tie = boss ? '#9b1d24' : crew ? null : r() < 0.6 ? pick(TIES) : null;
   const top = jacket || shirt;
-  const shortSleeves = !jacket && r() < 0.35;
+  const shortSleeves = !jacket && !crew && r() < 0.35;
   const root = new THREE.Group(), body = new THREE.Group();
   root.add(body);
   const hips = [], knees = [], shoulders = [], elbows = [];
@@ -612,7 +613,13 @@ function makePerson(seed, boss, temp) {
   if (jacket) box(0.2, 0.5, 0.02, shirt, 0, 0.12, 0.161, upper);
   if (tie) { box(0.09, 0.4, 0.02, tie, 0, 0.16, 0.175, upper); box(0.11, 0.07, 0.03, tie, 0, 0.54, 0.175, upper); }
   box(0.32, 0.05, 0.34, jacket ? shirt : top, 0, 0.6, 0, upper);
-  box(0.11, 0.13, 0.02, temp ? '#ffd23a' : '#ffffff', 0.16, 0.34, 0.17, upper);
+  if (crew) {
+    // Overall straps and a bib pocket instead of an office badge.
+    for (const s of [-1, 1]) box(0.07, 0.62, 0.02, '#2b557c', s * 0.14, 0, 0.165, upper);
+    box(0.24, 0.16, 0.02, '#2b557c', 0, 0.2, 0.168, upper);
+  } else {
+    box(0.11, 0.13, 0.02, temp ? '#ffd23a' : '#ffffff', 0.16, 0.34, 0.17, upper);
+  }
   for (const side of [-1, 1]) {
     const sh = new THREE.Group(); sh.position.set(side * 0.36, 0.56, 0); upper.add(sh);
     box(0.15, 0.31, 0.17, top, 0, -0.31, 0, sh);
@@ -630,7 +637,8 @@ function makePerson(seed, boss, temp) {
   }
   box(0.06, 0.09, 0.06, skin, 0, 0.19, 0.22, head);
   box(0.13, 0.025, 0.02, '#6e3428', 0, 0.14, 0.2, head);
-  const style = boss ? 0 : Math.floor(r() * 5);
+  const style = boss || crew ? 0 : Math.floor(r() * 5);
+  if (crew) { box(0.46, 0.09, 0.44, CAP, 0, 0.53, 0, head); box(0.32, 0.03, 0.2, CAP, 0, 0.53, 0.28, head); } // cap and peak
   if (style === 0) {
     box(0.44, 0.09, 0.42, hair, 0, 0.5, 0, head); box(0.44, 0.3, 0.06, hair, 0, 0.22, -0.2, head);
     if (boss) for (const s of [-1, 1]) box(0.03, 0.2, 0.24, hair, s * 0.215, 0.32, -0.07, head); // grey at the temples
@@ -660,6 +668,11 @@ function makePerson(seed, boss, temp) {
     folder: box(0.34, 0.03, 0.26, '#e5c77f', 0, 0.2, 0.34, upper),
     clipboard: box(0.24, 0.32, 0.02, '#8a5a2b', 0, -0.5, 0.08, elbows[0]),
   };
+  if (crew) {
+    props.wrench = box(0.04, 0.26, 0.04, '#9aa0a6', 0, -0.62, 0.06, elbows[1]);
+    props.toolbox = box(0.36, 0.2, 0.15, '#b8262b', 0, -0.62, 0.02, elbows[0]);
+    box(0.2, 0.04, 0.03, '#2a2a2a', 0, 0.2, 0, props.toolbox); // handle
+  }
   props.mug.rotation.x = 1.55;
   props.folder.rotation.x = -0.9;
   for (const p of Object.values(props)) p.visible = false;
@@ -684,7 +697,9 @@ const POSES = {
   coffee: (t, sit) => { const sip = t % 6 < 1.4; return { ...sitOr(sit), shR: sip ? -0.55 : -0.3, shRz: -0.2, elR: sip ? -2.3 : -1.45, shL: -0.05, elL: -0.15, headX: sip ? -0.25 : 0.05, headY: sip ? 0 : 0.3 * Math.sin(t * 0.5) }; },
   arms: (t, sit) => ({ ...sitOr(sit), shL: -0.45, shR: -0.45, shLz: 0.55, shRz: -0.55, elL: -1.75, elR: -1.75, headX: 0.1, headY: 0.2 * Math.sin(t * 0.8) }),
 };
-const PROPS_FOR = { coffee: 'mug', phone: 'phone', write: 'marker', read: 'folder', arms: 'clipboard' };
+POSES.fix = (t, sit) => ({ ...sitOr(sit), y: -0.07, lean: 0.25, hipL: -0.35, hipR: -0.35, kneeL: 0.7, kneeR: 0.7,
+  shR: -1.1 + 0.35 * Math.sin(t * 9), elR: -0.5, shL: -0.75, elL: -0.6, headX: 0.45 });
+const PROPS_FOR = { coffee: 'mug', phone: 'phone', write: 'marker', read: 'folder', arms: 'clipboard', fix: 'wrench' };
 function walkPose(p) {
   const s = Math.sin(p);
   return { hipL: 0.55 * s, hipR: -0.55 * s, kneeL: 0.7 * Math.max(0, s), kneeR: 0.7 * Math.max(0, -s), shL: -0.45 * s, shR: 0.45 * s, elL: -0.3, elR: -0.3, y: 0.035 * Math.abs(Math.cos(p)) };
@@ -692,9 +707,9 @@ function walkPose(p) {
 
 const actors = new Map();
 class Actor {
-  constructor(id, { name, boss = false, temp = false, seed }) {
-    this.id = id; this.name = name; this.boss = boss; this.temp = temp;
-    Object.assign(this, makePerson(seed, boss, temp));
+  constructor(id, { name, boss = false, temp = false, crew = false, seed }) {
+    this.id = id; this.name = name; this.boss = boss; this.temp = temp; this.crew = crew;
+    Object.assign(this, makePerson(seed, boss, temp, crew));
     this.pose = Object.fromEntries(POSE_KEYS.map((k) => [k, 0]));
     this.at = SPOTS.door; this.target = SPOTS.door; this.targetKey = 'door';
     this.root.position.set(SPOTS.door.x, 0, SPOTS.door.z);
@@ -704,7 +719,7 @@ class Actor {
     this.line = ''; this.bubbleText = ''; this.mood = 'think';
 
     this.tagEl = document.createElement('div');
-    this.tagEl.className = 'tag' + (temp ? ' temp' : '') + (boss ? ' boss' : '');
+    this.tagEl.className = 'tag' + (temp ? ' temp' : '') + (boss ? ' boss' : '') + (crew ? ' crew' : '');
     this.tagEl.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.tagEl.addEventListener('click', () => select(this.id, true));
     this.tag = new CSS2DObject(this.tagEl);
@@ -776,11 +791,11 @@ class Actor {
     this.elbows[0].rotation.x = p.elL; this.elbows[1].rotation.x = p.elR;
     this.head.rotation.x = p.headX; this.head.rotation.y = p.headY;
     const prop = this.walking ? null : PROPS_FOR[this.anim];
-    for (const [k, m] of Object.entries(this.props)) m.visible = k === prop;
+    for (const [k, m] of Object.entries(this.props)) m.visible = k === prop || (k === 'toolbox' && this.crew);
   }
 
   label(line, bubble, bubbleClass = '') {
-    const role = this.boss ? 'Manager' : this.temp ? 'Temp' : '';
+    const role = this.boss ? 'Manager' : this.crew ? 'Maintenance' : this.temp ? 'Temp' : '';
     const html = `<b>${esc(this.name)}${role ? ` · ${role}` : ''}</b><small>${esc(line)}</small>`;
     if (html !== this._tagHtml) { this.tagEl.innerHTML = html; this._tagHtml = html; }
     const key = bubble ? bubble + bubbleClass : '';
@@ -894,6 +909,48 @@ function bossBrain(t) {
   };
 }
 
+// Maintenance comes by every quarter hour on the wall clock (so every screen sees the same visit),
+// fixes the copier and then the coffee machine, and leaves. He isn't an agent: no roster row.
+const VISIT_EVERY = 15 * 60 * 1000, FIX_FOR = 18;
+const DEFAULT_CREW = 'Stan';
+let crewName = DEFAULT_CREW, crew = null, crewSlot = Math.floor(Date.now() / VISIT_EVERY);
+const CREW_JOBS = [
+  { thing: 'the copier', says: 'Paper jam again…', spot: { x: -12.2, z: 5.35, face: -Math.PI / 2, via: westVia(5.35) } },
+  { thing: 'the coffee machine', says: 'Who keeps putting tea in here?', spot: { x: 12.75, z: 5.45, face: Math.PI / 2, via: breakVia(5.45) } },
+];
+function startVisit() {
+  if (crew) return;
+  crew = new Actor('maintenance', { name: crewName, crew: true, seed: 4242 });
+  crew.job = 0;
+  crew.goTo(CREW_JOBS[0].spot, 'job');
+  memo(`${crew.name} from maintenance is here for the copier and the coffee machine.`);
+}
+function crewBrain(t) {
+  if (!crew) {
+    const slot = Math.floor(Date.now() / VISIT_EVERY);
+    if (slot !== crewSlot) { crewSlot = slot; startVisit(); }
+    return;
+  }
+  const job = CREW_JOBS[crew.job];
+  if (crew.walking || !job) {
+    crew.anim = 'stand';
+    crew.label(job ? `On the way to ${job.thing}` : 'Done for now', null);
+    return;
+  }
+  crew.anim = 'fix';
+  crew.label(`Fixing ${job.thing}`, job.says, 'boss');
+  if (t - crew.arrivedAt < FIX_FOR) return;
+  memo(`${crew.name} fixed ${job.thing}.`);
+  crew.job += 1;
+  if (CREW_JOBS[crew.job]) {
+    crew.goTo(CREW_JOBS[crew.job].spot, 'job');
+  } else {
+    const leaving = crew;
+    leaving.goTo(SPOTS.door, 'door');
+    leaving.onArrive = () => { leaving.dispose(); if (crew === leaving) crew = null; };
+  }
+}
+
 // ---------------------------------------------------------------- syncing state
 let source = 'live';
 const live = { agents: [], offset: 0, connected: false, everConnected: false, hooks: false };
@@ -921,6 +978,8 @@ async function loadNames() {
     cast = await r.json();
   } catch { return; } // offline, or no server (opened as a file): keep the current names
   if (Array.isArray(cast)) cast = { names: cast }; // an older server sends just the list
+  crewName = cast?.maintenance ? String(cast.maintenance) : DEFAULT_CREW;
+  if (crew) crew.name = crewName;
   const says = Array.isArray(cast?.says) && cast.says.length ? cast.says.map(String) : DEFAULT_SAYS;
   const managerName = cast?.manager ? String(cast.manager) : DEFAULT_MANAGER;
   const mKey = managerName + '\n' + says.join('\n');
@@ -1244,6 +1303,8 @@ function step(dt, draw = true) {
   const t = simT, ns = nowSec();
   for (const actor of actors.values()) { if (actor !== boss) think(actor, t, ns); actor.update(dt, t); }
   bossBrain(t);
+  crewBrain(t);
+  crew?.update(dt, t);
 
   for (const d of deskSlots) {
     const o = d.owner && actors.get(d.owner);
@@ -1281,7 +1342,7 @@ function frame() {
   requestAnimationFrame(frame);
 }
 // Handy from the dev console; advance() fast-forwards the floor when the tab is in the background.
-window.tokenTally = { actors, deskSlots, camera, controls, loadNames, advance(sec) { for (let i = 0; i < sec * 30; i++) step(1 / 30, false); step(0); } };
+window.tokenTally = { actors, deskSlots, camera, controls, loadNames, maintenance: startVisit, get crew() { return crew; }, advance(sec) { for (let i = 0; i < sec * 30; i++) step(1 / 30, false); step(0); } };
 
 setConn();
 renderRoster();
