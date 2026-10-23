@@ -16,3 +16,6 @@ names.txt
 
 # Container settings (see .env.example)
 .env
+
+# The container's data folder, if used (see .env.example)
+data/

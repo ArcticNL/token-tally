@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Auto-deploy works with Docker.** `pi/deploy.sh` rebuilds and restarts the container when the office folder has `compose.yaml` and `.env`, so push-to-deploy and the GitHub timer keep working after moving to Docker.
+- **A data folder instead of a volume:** set `OFFICE_DATA=./data` plus `OFFICE_UID` and `OFFICE_GID` in `.env` to keep the key and `names.txt` in a plain folder.
+
 - **Docker.** Run the office with `docker compose up -d` (see [docs/docker.md](docs/docker.md)). On the first start it creates its own key in a data volume. It reads settings from `.env` and names from an optional `names.txt`. It runs as an unprivileged user, read-only, with a health check.
 - `server.py --names-file PATH` picks where the cast file lives (default: `names.txt` next to `server.py`).
 - `tests/test_container_start.py` checks the container's start-up without needing Docker.

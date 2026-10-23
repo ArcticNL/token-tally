@@ -19,3 +19,4 @@ compose.yaml
 Dockerfile
 **/__pycache__
 **/*.pyc
+data

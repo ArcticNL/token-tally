@@ -12,9 +12,14 @@ services:
     environment:
       OFFICE_ALLOW_HOSTS: ${OFFICE_ALLOW_HOSTS:-}
       OFFICE_EXTRA_URLS: ${OFFICE_EXTRA_URLS:-}
+    # The container's user. With a data folder (OFFICE_DATA below), set this to the folder's
+    # owner in .env, so the office can read and write it.
+    user: "${OFFICE_UID:-10001}:${OFFICE_GID:-10001}"
     volumes:
-      - office-data:/data
-      # Your own worker, Manager and Maintenance names, editable live (see docs/tablet-kiosk.md):
+      # The key and names: a Docker volume by default, or a folder such as ./data (set in .env).
+      - ${OFFICE_DATA:-office-data}:/data
+      # With the volume, your own worker, Manager and Maintenance names can be mounted on their
+      # own (see docs/tablet-kiosk.md). With a data folder, just put names.txt in it.
       # - ./names.txt:/data/names.txt:ro
     # Locked down: nothing but /data is writable, no extra privileges.
     read_only: true

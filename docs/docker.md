@@ -31,14 +31,22 @@ docker compose exec office cat /data/hook.key
 
 That's the key the installer asks for on each PC. It stays the same across restarts and updates.
 
+## Keeping the key and names in a folder
+
+By default the key lives in a Docker volume. To see, back up and edit things directly instead, use a folder:
+
+1. In `.env`, set `OFFICE_DATA=./data` and set `OFFICE_UID` and `OFFICE_GID` to your user's numbers (`id -u` and `id -g`).
+2. Create it with `mkdir -p data`, then run `docker compose up -d`.
+
+The container now runs as you and keeps `hook.key` in `./data`. The `data/` folder is in `.gitignore` and `.dockerignore`.
+
 ## Your own names
 
 To use your own worker, Manager and Maintenance names (see [tablet-kiosk.md](tablet-kiosk.md#changing-the-workers-names)):
-1. Put a `names.txt` next to `compose.yaml`.
-2. Uncomment the `./names.txt:/data/names.txt:ro` line in `compose.yaml`.
-3. Run `docker compose up -d` once.
+- **With a data folder:** put `names.txt` in `data/`.
+- **With the volume:** put `names.txt` next to `compose.yaml`, uncomment the `./names.txt:/data/names.txt:ro` line in `compose.yaml`, and run `docker compose up -d` once.
 
-After that, edit `names.txt` on the host whenever you like. The office picks changes up within 30 seconds.
+After that, edit `names.txt` whenever you like. The office picks changes up within 30 seconds.
 
 ## Everyday commands
 
@@ -70,22 +78,25 @@ Check [CHANGELOG.md](../CHANGELOG.md) for anything an update asks you to do, suc
 - **Health check:** Docker checks `/state` every 30 seconds, so `docker compose ps` shows whether the office is healthy.
 - **Kept out of the image:** `.dockerignore` keeps `hook.key`, `relay.json`, `office.env`, `names.txt`, `.env` and git history out of the image.
 
+## Auto-deploy with Docker
+
+The push-to-deploy and GitHub auto-deploy from [pi-server.md](pi-server.md) work with the container too. You set them up the same way:
+- a bare repo with `pi/post-receive`
+- the read-only GitHub deploy key
+- `token-tally-pull.timer`
+
+The office folder (`~/token-tally-office`, the checkout) also holds `.env` and `data/`. When `pi/deploy.sh` finds `compose.yaml` and `.env` there, it rebuilds and restarts the container (`docker compose up -d --build`) instead of restarting the systemd service, then waits for it to report healthy. The deploy log says `container healthy` when all is well, and the output of the last build is in `office-compose.log` next to it. The account running it needs to be in the `docker` group.
+
 ## Moving from the systemd setup
 
 To keep your current key, so no PC needs reinstalling:
 
-1. Stop the old service: `systemctl --user disable --now token-tally token-tally-pull.timer`
-2. Start the container once with `docker compose up -d`, then stop it with `docker compose down`.
-3. Copy the key into the volume, owned by the container's user:
-   ```bash
-   docker run --rm -v token-tally_office-data:/data -v "$PWD":/src alpine sh -c 'cp /src/hook.key /data/hook.key && chown 10001 /data/hook.key && chmod 600 /data/hook.key'
-   ```
-   This uses the old `hook.key` from your office folder. The volume name is the project folder's name plus `_office-data`; `docker volume ls` shows it.
-4. Start it again with `docker compose up -d`.
+1. Copy the old office's `hook.key` and `names.txt` into the new office folder's `data/`, owned by the user the container will run as, readable by that user only (`chmod 600 data/hook.key`).
+2. Fill in `.env` with `OFFICE_DATA=./data` and that user's `OFFICE_UID` and `OFFICE_GID`.
+3. Stop the old service and its timer: `systemctl --user disable --now token-tally token-tally-pull.timer`
+4. Start the container: `docker compose up -d --build`, or push to deploy if you've set up auto-deploy.
 
-Or skip steps 2–3: let the container make a new key, and run the installer again on each PC.
-
-Auto-deploy from GitHub (`token-tally-pull.timer`) belongs to the systemd setup. With Docker, update with the `git pull && docker compose up -d --build` above, by hand or from a cron job.
+Or start without the old key: the container makes a new one, and you run the installer again on each PC.
 
 ## Running it on the same PC as Claude Code
 
