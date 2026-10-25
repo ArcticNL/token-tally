@@ -1,70 +1,8 @@
-import { spawn } from 'node:child_process';
-import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
 import { test, expect, preparePage, row, rows } from './fixtures.mjs';
+import { startChain } from './codex-chain.mjs';
 
-const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest',
   'Stop', 'SubagentStart', 'SubagentStop', 'SessionEnd', 'Interrupt', 'PreCompact', 'PostCompact'];
-
-async function bounded(promise, ms, message) {
-  let timer;
-  try {
-    return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); })]);
-  } finally { clearTimeout(timer); }
-}
-
-// The helper installs into temporary HOME/CODEX_HOME and executes the command
-// actually written to hooks.json. It never launches Codex or reveals its key.
-function startChain() {
-  const child = spawn(process.env.PYTHON || 'python3', ['-I', '-B', '-u',
-    fileURLToPath(new URL('./start_codex_chain.py', import.meta.url)), REPO], { stdio: ['pipe', 'pipe', 'pipe'] });
-  const lines = createInterface({ input: child.stdout });
-  const pending = new Map();
-  let resolveReady, rejectReady, nextId = 0, stderrBytes = 0, failure;
-  const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
-  const fail = (error) => {
-    failure = error;
-    rejectReady(error);
-    for (const waiter of pending.values()) waiter.reject(error);
-  };
-  child.stderr.on('data', (chunk) => { stderrBytes += chunk.length; });
-  child.stdin.on('error', () => fail(new Error('Codex fixture input pipe failed')));
-  const exited = new Promise((resolve) => {
-    child.once('error', () => { fail(new Error('Codex fixture could not start')); resolve(null); });
-    child.once('exit', (code) => { fail(new Error(`Codex fixture exited ${code}`)); resolve(code); });
-  });
-  lines.on('line', (line) => {
-    let message;
-    try { message = JSON.parse(line); } catch { fail(new Error('Invalid Codex fixture response')); return; }
-    if (message.type === 'ready') resolveReady(message);
-    else if (message.type === 'result') pending.get(message.id)?.resolve(message);
-    else if (message.type === 'error') fail(new Error(`Codex fixture: ${message.code}`));
-    else fail(new Error('Unknown Codex fixture response'));
-  });
-  return {
-    ready: () => bounded(ready, 45_000, 'Codex fixture readiness timed out'),
-    async hook(event) {
-      if (failure) throw failure;
-      const id = ++nextId;
-      const result = new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
-      child.stdin.write(JSON.stringify({ id, op: 'hook', event }) + '\n');
-      try { return await bounded(result, 8_000, 'Installed Codex hook timed out'); }
-      finally { pending.delete(id); }
-    },
-    async close() {
-      child.stdin.end();
-      try {
-        expect(await bounded(exited, 8_000, 'Codex fixture cleanup timed out')).toBe(0);
-        expect(stderrBytes, 'fixture stderr must stay empty').toBe(0);
-      } catch (error) {
-        child.kill('SIGTERM');
-        await bounded(exited, 8_000, 'Codex fixture did not stop after SIGTERM');
-        throw error;
-      } finally { lines.close(); }
-    },
-  };
-}
 
 test('installed Codex hooks reach the browser with observed status and honest actor attribution @pr15', async ({ page }) => {
   test.setTimeout(90_000);

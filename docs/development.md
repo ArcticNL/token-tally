@@ -192,6 +192,11 @@ across compaction and tool completion, receipt timestamps, session shutdown and
 absence of private fixture text in snapshots and the UI. Successful relay exit
 alone is insufficient: each event must produce its expected SSE state. The helper
 uses POSIX pipes on macOS and Linux and cleans up on stdin EOF or SIGTERM.
+Its transport waits for process and stream closure, preserves the first safe
+fixture error code alongside the exit status and never prints raw subprocess
+output. `codex-chain.spec.mjs` checks diagnostics, shutdown and timeout behavior
+without launching a browser or provider. A passing rerun alone does not explain
+an earlier fixture failure; retain its code when investigating intermittent failures.
 This tests the installed components, but does not launch Codex, grant hook trust
 or establish that a live Codex session invokes those hooks. That remains the
 separate manual check in [Codex integration](codex.md#verification).
