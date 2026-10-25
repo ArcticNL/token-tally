@@ -41,6 +41,16 @@ def validate_config(config):
             and str(ports[0].get("published", "0")) in ("", "0"), "non-isolated port")
 
 
+def validate_event_state(state):
+    # Avatar IDs are opaque scoped identities; correlate using the public fields.
+    agents = state["agents"]
+    accepted = [agent for agent in agents
+                if agent.get("provider") == "claude" and agent.get("session_id") == "smoke-good"]
+    require(len(accepted) == 1 and bool(accepted[0].get("id")), "signed event state mismatch")
+    require(not any(agent.get("session_id") == "smoke-refused" for agent in agents),
+            "rejected event reached office state")
+
+
 class Smoke:
     def __init__(self, image, platform, directory, deadline=180, bind=False, source_root=None):
         self.directory = Path(directory)
@@ -139,8 +149,7 @@ class Smoke:
         for payload, signed, expected in cases:
             require(self.request("/hook", payload, signed)[0] == expected, "unsafe event accepted")
         state = json.loads(self.request("/state")[1])
-        ids = {agent["id"] for agent in state["agents"]}
-        require("smoke-good" in ids and "smoke-refused" not in ids, "event state mismatch")
+        validate_event_state(state)
 
     def exercise(self, expected_version=None, expected_revision=None):
         validate_config(json.loads(self.dc("config", "--format", "json")))

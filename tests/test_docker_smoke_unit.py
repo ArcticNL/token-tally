@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_docker_smoke import Smoke, main, validate_config
+from test_docker_smoke import Smoke, main, validate_config, validate_event_state
 
 
 class SmokeContractTests(unittest.TestCase):
@@ -20,6 +20,15 @@ class SmokeContractTests(unittest.TestCase):
         return {"services": {"office": {"read_only": True, "user": "10001:10001",
             "cap_drop": ["ALL"], "security_opt": ["no-new-privileges:true"], "init": True,
             "ports": [{"host_ip": "127.0.0.1", "published": "0"}]}}}
+
+    def test_event_state_uses_scoped_identity_and_rejects_unsafe_events(self):
+        accepted = {"id": "opaque-avatar-id", "provider": "claude", "session_id": "smoke-good"}
+        validate_event_state({"agents": [accepted]})
+        for agents in ([], [accepted, accepted], [{**accepted, "provider": "other"}],
+                       [{**accepted, "id": ""}],
+                       [accepted, {"id": "other", "provider": "claude", "session_id": "smoke-refused"}]):
+            with self.subTest(agents=agents), self.assertRaises(AssertionError):
+                validate_event_state({"agents": agents})
 
     def test_security_regressions_fail(self):
         original = self.config()
