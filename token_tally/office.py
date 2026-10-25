@@ -402,6 +402,12 @@ class Office:
                     a.waits[key] = (e.tool_name, task_for(e.tool_name) if e.tool_name else "", e.detail, now)
                 else:
                     self.close_calls(a, [key], now)
+                    # A repeated completion cannot replace an established
+                    # status. Still allow key enrichment and correlated closure
+                    # above to change pending work or visible waits.
+                    if (ended and a.since and pending_before == set(a.pending)
+                            and waits_before == a.active_waits()):
+                        return
                 for items in (a.pending, a.waits):
                     if len(items) > 4096:
                         items.pop(next(iter(items)))

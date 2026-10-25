@@ -60,6 +60,77 @@ class StateEventsTests(unittest.TestCase):
         self.hook('PostToolUse', tool_use_id='call-a', tool_name='Read')
         self.assertEqual(a.tools, 1)
 
+    def test_hook_stop_survives_duplicate_transcript_result(self):
+        for hook_turn, transcript_turn in ((None, None), ('turn', None),
+                                          (None, 'turn'), ('turn', 'turn')):
+            for completed_before_stop in (False, True):
+                with self.subTest(hook_turn=hook_turn, transcript_turn=transcript_turn,
+                                  completed_before_stop=completed_before_stop):
+                    self.office = self.office_module.Office(projects=self.sandbox.projects,
+                                                           local_client_id='fixture-client')
+                    self.hook('PreToolUse', turn_id=hook_turn, tool_use_id='call', tool_name='Read')
+                    if completed_before_stop:
+                        self.clock[0] += 1
+                        self.hook('PostToolUse', turn_id=hook_turn, tool_use_id='call', tool_name='Read')
+                    self.clock[0] += 1
+                    self.hook('Stop', turn_id=hook_turn)
+                    a = self.agent()
+                    stopped_since = a.since
+                    self.clock[0] += self.office_module.MIN_SHOW + 1
+                    self.transcript([{'type': 'tool_result', 'tool_use_id': 'call'}],
+                                    kind='user', turnId=transcript_turn)
+                    self.assertEqual((a.status, a.since, a.source), ('idle', stopped_since, 'hook'))
+                    self.assertEqual(a.tools, 1)
+                    self.assertFalse(a.pending)
+                    self.assertFalse(a.waits)
+                    self.assertEqual(a.last, self.clock[0])
+                    self.assertEqual(a.public(self.clock[0])['status'], 'idle')
+                    self.clock[0] += 60
+                    self.office.tick()
+                    self.assertEqual(a.status, 'idle')
+
+    def test_new_completion_after_stop_can_continue_same_turn(self):
+        for turn in (None, 'turn'):
+            with self.subTest(turn=turn):
+                self.office = self.office_module.Office(projects=self.sandbox.projects,
+                                                       local_client_id='fixture-client')
+                self.hook('PreToolUse', turn_id=turn, tool_use_id='first', tool_name='Read')
+                self.hook('PostToolUse', turn_id=turn, tool_use_id='first', tool_name='Read')
+                self.hook('Stop', turn_id=turn)
+                self.clock[0] += 1
+                self.hook('PostToolUse', turn_id=turn, tool_use_id='continuation', tool_name='Bash')
+                a = self.agent()
+                self.assertEqual((a.status, a.tools), ('thinking', 2))
+                self.assertEqual(a.since, self.clock[0])
+                self.hook('PreToolUse', turn_id=turn, tool_use_id='continuation', tool_name='Bash')
+                self.assertFalse(a.pending)
+                self.assertEqual(a.tools, 2)
+
+    def test_duplicate_terminal_enrichment_preserves_unknown_turn_wait(self):
+        self.emit('tool_end', tool_call_id='finished', tool_name='Read', source='transcript')
+        self.emit('wait', tool_call_id='question', tool_name='Bash')
+        self.emit('tool_end', turn_id='turn', tool_call_id='finished', tool_name='Read')
+        a = self.agent()
+        self.assertEqual((a.status, a.current_turn, a.tools), ('waiting', 'turn', 1))
+        self.assertEqual(set(a.waits), {(None, 'question')})
+        self.assertTrue(self.office.known('end', self.actor, ('turn', 'finished'), self.clock[0]))
+        self.assertEqual(a.public(self.clock[0])['observed']['turn_id'], None)
+        self.emit('tool_end', turn_id='turn', tool_call_id='question', tool_name='Bash')
+        self.assertFalse(a.waits)
+        self.assertEqual((a.status, a.tools), ('thinking', 2))
+
+    def test_retained_terminal_initializes_observation_after_actor_clockout(self):
+        child = self.ActorKey('claude', 'fixture-client', 'session', 'child')
+        self.emit('tool_end', actor=child, is_subagent=True, tool_call_id='call', tool_name='Read')
+        self.emit('stop', actor=child, is_subagent=True)
+        self.clock[0] += self.office_module.TEMP_DONE_AFTER + 1
+        self.office.tick()
+        self.assertNotIn(child.public_id, self.office.agents)
+        self.emit('tool_end', actor=child, is_subagent=True, tool_call_id='call', tool_name='Read')
+        observed = self.agent(child).public(self.clock[0])['observed']
+        self.assertEqual((observed['since'], observed['source']), (self.clock[0], 'hook'))
+        self.assertEqual(self.agent(child).tools, 0)
+
     def test_terminal_before_start_does_not_reopen_call(self):
         self.emit('tool_end', turn_id='turn', tool_call_id='call', tool_name='Read')
         self.emit('tool_start', turn_id='turn', tool_call_id='call', tool_name='Read')

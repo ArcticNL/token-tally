@@ -84,10 +84,12 @@ Each snapshot retains the existing flat presentation fields and adds `provider`,
 transcript timeout guess. Counts mean observed tool calls, not successes.
 
 Native call IDs deduplicate tool starts/results across sources. Terminal evidence
-arriving first counts once and prevents a late start reopening that call. Waits
-are per call or per turn; finishing another call cannot clear them. Stop closes
-known calls but allows new calls in the same turn. A session-end tombstone blocks
-late events until an explicit root start. Native turn boundaries isolate late
+arriving first counts once and prevents a late start reopening that call. A
+repeated completion can enrich call correlation, but cannot replace a later status
+unless it changes pending calls or visible waits. Waits are per call or per turn;
+finishing another call cannot clear them. Stop closes known calls but allows new
+calls in the same turn. A session-end tombstone blocks late events until an
+explicit root start. Native turn boundaries isolate late
 results; without turn IDs or sequence metadata total ordering is unknowable.
 An uncorrelated historical transcript prompt/stop cannot erase live pending calls.
 Missing call IDs are matched by name only when exactly one call matches; ambiguous

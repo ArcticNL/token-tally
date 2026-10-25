@@ -322,6 +322,37 @@ class CodexStateTests(unittest.TestCase):
         self.send("PostToolUse", tool_use_id="call")
         self.assertEqual(self.state(unknown=True).status, "idle")
 
+    def test_named_child_duplicate_completion_preserves_subagent_stop(self):
+        for turn in (None, "turn"):
+            with self.subTest(turn=turn):
+                session = "untagged" if turn is None else "native-turn"
+                fields = dict(agent_id="child", turn=turn, session=session)
+                self.send("PreToolUse", tool_use_id="call", **fields)
+                self.send("PostToolUse", tool_use_id="call", **fields)
+                self.send("SubagentStop", **fields)
+                child = self.state(agent="child", session=session)
+                stopped_since = child.since
+                self.send("PostToolUse", tool_use_id="call", **fields)
+                self.assertEqual((child.status, child.since, child.tools), ("idle", stopped_since, 1))
+                self.assertFalse(child.pending)
+                self.assertFalse(child.waits)
+                self.clock[0] += self.module.MIN_SHOW + 1
+                self.assertEqual(child.public(self.clock[0])["status"], "idle")
+                self.clock[0] += self.module.TEMP_DONE_AFTER + 1
+                self.office.tick()
+                self.assertNotIn(child.id, self.office.agents)
+
+    def test_named_child_new_completion_can_continue_after_subagent_stop(self):
+        self.send("PreToolUse", agent_id="child", tool_use_id="first")
+        self.send("PostToolUse", agent_id="child", tool_use_id="first")
+        self.send("SubagentStop", agent_id="child")
+        self.send("PostToolUse", agent_id="child", tool_use_id="continuation")
+        child = self.state(agent="child")
+        self.assertEqual((child.status, child.tools), ("thinking", 2))
+        self.send("PreToolUse", agent_id="child", tool_use_id="next")
+        self.assertEqual((child.status, child.tools), ("working", 3))
+        self.assertEqual(set(child.pending), {("turn", "next")})
+
     def test_replayed_stop_delivery_cannot_close_continuation(self):
         self.waiting()
         self.send("Stop", delivery="original-stop")
