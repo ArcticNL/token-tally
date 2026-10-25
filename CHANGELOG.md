@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Fresh snapshots for slow connections.** Live subscribers retain the newest
+  full snapshot rather than losing it behind an old backlog, including departures.
+
 - **Atomic live subscriptions.** Opening or reconnecting a live view cannot miss
   a state change between its initial snapshot and event registration.
 

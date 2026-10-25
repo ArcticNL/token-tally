@@ -455,7 +455,7 @@ class Office:
             json.dumps({"dedup_evictions": self.seen.evictions, "dedup_expirations": self.seen.expirations}))
 
     def subscribe(self):
-        q = queue.Queue(maxsize=64)
+        q = queue.Queue(maxsize=1)
         with self.lock:
             # Snapshot and registration share the publisher lock: a change in
             # between must be queued, even if no later state changes occur.
@@ -468,11 +468,16 @@ class Office:
             self.clients.discard(q)
 
     def broadcast(self, msg):
+        # Events carry complete snapshots, not deltas. A slow connection only
+        # needs the latest one; serialize producers while replacing its backlog.
         with self.lock:
-            clients = list(self.clients)
-        for q in clients:
-            try:
-                q.put_nowait(msg)
-            except queue.Full:
-                pass
+            for q in self.clients:
+                try:
+                    q.put_nowait(msg)
+                except queue.Full:
+                    try:
+                        q.get_nowait()
+                    except queue.Empty:
+                        pass  # the HTTP reader drained it after put_nowait
+                    q.put_nowait(msg)
 

@@ -77,6 +77,36 @@ class SnapshotDeliveryTests(unittest.TestCase):
         self.office.tick()
         self.assertTrue(subscriber.empty(), "the next unchanged tick cannot repair a lost snapshot")
 
+    def test_slow_subscriber_catches_up_without_another_state_change(self):
+        slow, fast = self.office.subscribe(), self.office.subscribe()
+        self.addCleanup(self.office.unsubscribe, slow)
+        self.addCleanup(self.office.unsubscribe, fast)
+        self.drain(fast)
+        for index in range(1, 71):
+            self.office.hook({"session_id": "fixture-session", "hook_event_name": "PreToolUse",
+                              "tool_name": "Read", "tool_use_id": str(index)})
+            self.office.tick()
+            self.assertEqual(self.drain(fast)[-1]["agents"][0]["tools"], index)
+        self.assertLessEqual(slow.qsize(), 64, "a slow subscriber must stay bounded")
+        delivered = self.drain(slow)
+        self.assertEqual(delivered[-1]["agents"][0]["tools"], 70)
+        self.assertEqual(delivered[-1]["agents"], json.loads(self.office.payload())["agents"])
+        self.office.tick()
+        self.assertTrue(slow.empty(), "no later event should be needed to catch up")
+
+    def test_slow_subscriber_receives_session_removal(self):
+        subscriber = self.office.subscribe()
+        self.addCleanup(self.office.unsubscribe, subscriber)
+        for index in range(70):
+            self.office.hook({"session_id": "fixture-session", "hook_event_name": "PreToolUse",
+                              "tool_name": "Read", "tool_use_id": str(index)})
+            self.office.tick()
+        self.office.hook({"session_id": "fixture-session", "hook_event_name": "SessionEnd"})
+        self.office.tick()
+        self.assertEqual(self.drain(subscriber)[-1]["agents"], [])
+        self.office.tick()
+        self.assertTrue(subscriber.empty())
+
 
 if __name__ == "__main__":
     unittest.main()

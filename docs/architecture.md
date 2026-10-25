@@ -102,7 +102,7 @@ also capped at 4,096 each per actor; loss sets `observed.limited`. These caches 
 separate from the security nonce cache. No durable event history is kept.
 
 Separately, `Agent.public()` keeps a tool on show for at least `MIN_SHOW` (4 s) after it starts. Most tools finish in milliseconds, faster than the one-second updates, so without this a worker would almost never leave their desk. The hold never covers a *waiting* status.
-- If anything changed, broadcasts `{"now", "hooks", "agents": [...]}` to every `/events` client.
+- If anything changed, broadcasts `{"now", "hooks", "agents": [...]}` to every `/events` client. Each client retains only the newest pending full snapshot, so a slow reader catches up without needing another state change.
 
 ## The browser side (static/office.js and static/office/)
 
