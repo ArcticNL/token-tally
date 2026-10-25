@@ -172,7 +172,15 @@ for (const query of ['', '?lite']) {
       const actor = window.tokenTally.actors.get(id);
       return { leaving: actor?.leaving, walking: actor?.walking, attached: !!actor?.root.parent };
     }, staff[0].id)).toEqual({ leaving: true, walking: true, attached: true });
-    await page.clock.runFor(3000);
+    // Initial RAFs above exercise the real frame wiring. Advance the actual
+    // actor movement here without rendering 180 shadowed software-WebGL frames.
+    await page.evaluate((id) => {
+      const actor = window.tokenTally.actors.get(id);
+      const start = performance.now() / 1000;
+      for (let frame = 1; frame <= 180 && actor.walking; frame++) {
+        actor.update(1 / 60, start + frame / 60);
+      }
+    }, staff[0].id);
     expect(await page.evaluate(() => [...window.tokenTally.actors.values()].map((actor) => actor.id))).toEqual(['manager']);
     await expect(page.locator('#file')).toBeHidden();
   });
