@@ -6,7 +6,8 @@
   full snapshot rather than losing it behind an old backlog, including departures.
 
 - **Atomic live subscriptions.** Opening or reconnecting a live view cannot miss
-  a state change between its initial snapshot and event registration.
+  a state change between its initial snapshot and event registration, or have
+  that snapshot replaced by an older tick still waiting to publish.
 
 - **Local transcript cancellation.** In transcript-only sessions, an interruption
   or new prompt closes earlier pending tools instead of leaving a false permission

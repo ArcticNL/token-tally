@@ -443,8 +443,9 @@ class Office:
             body = json.dumps([a.public() for a in self.agents.values()])
             changed = body != self.last_body
             self.last_body = body
-        if changed:
-            self.broadcast(self.payload(body))
+            if changed:
+                # Publish before a newer subscriber snapshot can be registered.
+                self.broadcast(self.payload(body))
 
     def payload(self, body=None):
         if body is None:

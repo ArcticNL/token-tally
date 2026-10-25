@@ -77,6 +77,49 @@ class SnapshotDeliveryTests(unittest.TestCase):
         self.office.tick()
         self.assertTrue(subscriber.empty(), "the next unchanged tick cannot repair a lost snapshot")
 
+    def test_older_tick_cannot_overwrite_a_newer_subscription_snapshot(self):
+        self.office.hook({"session_id": "fixture-session", "hook_event_name": "PreToolUse",
+                          "tool_name": "Read", "tool_use_id": "first"})
+        original_broadcast = self.office.broadcast
+        attempted = threading.Event()
+        subscriptions, failures = [], []
+
+        def change_and_subscribe():
+            acquired = self.office.lock.acquire(blocking=False)
+            try:
+                if not acquired:
+                    attempted.set()
+                self.office.hook({"session_id": "fixture-session", "hook_event_name": "PreToolUse",
+                                  "tool_name": "Read", "tool_use_id": "second"})
+                subscriptions.append(self.office.subscribe())
+            except BaseException as error:
+                failures.append(error)
+            finally:
+                if acquired:
+                    self.office.lock.release()
+                attempted.set()
+
+        newcomer = threading.Thread(target=change_and_subscribe, daemon=True)
+
+        def paused_broadcast(snapshot):
+            newcomer.start()
+            if not attempted.wait(5):
+                raise AssertionError("subscriber did not reach the publication boundary")
+            original_broadcast(snapshot)
+
+        with mock.patch.object(self.office, "broadcast", paused_broadcast):
+            try:
+                self.office.tick()
+            finally:
+                if newcomer.ident is not None:
+                    newcomer.join(5)
+        self.assertFalse(newcomer.is_alive(), "subscriber must not deadlock with publication")
+        self.assertFalse(failures, failures)
+        self.assertEqual(len(subscriptions), 1)
+        self.addCleanup(self.office.unsubscribe, subscriptions[0])
+        snapshots = self.drain(subscriptions[0])
+        self.assertEqual(snapshots[-1]["agents"][0]["tools"], 2)
+
     def test_slow_subscriber_catches_up_without_another_state_change(self):
         slow, fast = self.office.subscribe(), self.office.subscribe()
         self.addCleanup(self.office.unsubscribe, slow)
