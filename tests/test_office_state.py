@@ -22,7 +22,7 @@ def main():
         import server
 
         with mock.patch.object(server.time, "time", lambda: clock[0]):
-            o = server.Office()
+            o = server.Office(projects=sandbox.projects)
             ev = lambda **kw: o.hook({"session_id": "s1", **kw})  # noqa: E731
 
             # --- a millisecond tool stays on show long enough to walk to its station

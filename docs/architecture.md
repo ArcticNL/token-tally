@@ -36,7 +36,12 @@ Both feed the same `Agent` records, so they can be mixed.
 
 Unknown events and posts without a `session_id` are ignored. The installer uses an empty post to test the key.
 
-## Agent state (server.py)
+## Agent state (token_tally/office.py)
+
+`server.py` retains the CLI, HTTP routes, request signing checks and SSE framing.
+`token_tally/office.py` contains `Agent`, `Office` and the existing transcript and
+status helpers. The office receives its transcript directory explicitly, which
+also keeps isolated tests independent of the user's configuration.
 
 Each agent has `status` (`thinking`, `working`, `replying`, `waiting`, `idle`), a `task` category, the `tool` and a short `detail` (a file name, the first line of a command, a search query or a host name). It also keeps a `pending` map of open tool calls, a `log` of the last 10 actions, and the `assignment`, `project`, `cwd` and `machine`.
 

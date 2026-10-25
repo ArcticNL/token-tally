@@ -17,6 +17,7 @@ RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin offic
 
 WORKDIR /app
 COPY server.py hook_relay.py LICENSE THIRD-PARTY-NOTICES.md ./
+COPY token_tally ./token_tally
 COPY static ./static
 COPY docker/entrypoint.py /usr/local/bin/office-entrypoint
 

@@ -165,7 +165,10 @@ tokenTally.advance(15);
 
 ## Code map
 
-### server.py
+### server.py and token_tally/office.py
+
+The state classes and transcript helpers live in `token_tally/office.py`.
+`server.py` remains the command-line entrypoint and owns HTTP, signing and SSE.
 
 | Part | What it does |
 | --- | --- |
