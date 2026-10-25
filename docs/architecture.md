@@ -103,7 +103,17 @@ separate from the security nonce cache. No durable event history is kept.
 Separately, `Agent.public()` keeps a tool on show for at least `MIN_SHOW` (4 s) after it starts. Most tools finish in milliseconds, faster than the one-second updates, so without this a worker would almost never leave their desk. The hold never covers a *waiting* status.
 - If anything changed, broadcasts `{"now", "hooks", "agents": [...]}` to every `/events` client.
 
-## The browser side (static/office.js)
+## The browser side (static/office.js and static/office/)
+
+`office.js` composes native modules and owns source switching, picking and the single
+animation loop. `scene.js` builds and renders the room; `actors.js` owns people,
+desks, routing and non-agent characters; `hud.js` owns DOM windows and focus;
+`state.js` owns snapshot/selection state and the status-to-intent mapping;
+`feed.js` owns EventSource and name fetching; `demo.js` supplies the simulator;
+`utils.js` contains shared deterministic and text helpers. Scene, actors and HUD
+are created once, with dependencies passed explicitly. Importing a module starts
+no renderer, timer or network connection. The existing import map still resolves
+Three.js from `static/vendor/`; no build step is needed.
 
 - **Scene:** the room is built once from boxes, cylinders and canvas textures, with no model files. It's a 28 × 18 m floor with a main aisle along z = 0. There are 8 cubicles, 4 temp desks, filing cabinets, the copy room, phones and fax, the whiteboard, the Manager's glass office and the break room.
 - **Spots:** every place a worker can stand or sit is a *spot* `{x, z, face, sit, via}`. `via` is the path from the spot back out to the aisle, so routing a worker is just: walk out along the old spot's `via`, along the aisle, then in along the new spot's `via`. Re-routing mid-walk retraces the right part of the path, so nobody walks through walls.

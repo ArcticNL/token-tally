@@ -156,7 +156,7 @@ tokenTally.advance(15);
 
 ## Isolated browser regression tests
 
-Use Node.js 22 and the pinned Playwright development dependency:
+Use Node.js 22, Python 3.9 or newer and the pinned Playwright development dependency:
 
 ```bash
 npm ci
@@ -166,7 +166,15 @@ npm run test:browser
 
 On Linux CI, install the browser's system dependencies with `npx playwright install --with-deps chromium`. The browser workflow runs separately from the Python checks; both are required for frontend changes. No JavaScript build or Node runtime is needed in production.
 
-These are UI tests against a **synthetic backend**, not Python backend integration tests. Each worker starts a Node standard-library server on an ephemeral loopback port, serves only `static/`, and supplies generic `/names`, `/state` and real `/events` SSE responses. The fixture never reads transcripts, user names, keys or configuration, and never invokes agents. All browser traffic is restricted to the fixture; the optional Google Fonts stylesheet is replaced with empty CSS. Every test gets a fresh browser context and reset fixture; teardown closes sockets and the server even after a failure.
+Most UI tests use a **synthetic backend**. Each worker starts a Node standard-library server on an ephemeral loopback port, serves only `static/`, and supplies generic `/names`, `/state` and real `/events` SSE responses. The fixture never reads transcripts, user names, keys or configuration, and never invokes agents. All browser traffic is restricted to the fixture; the optional Google Fonts stylesheet is replaced with empty CSS. Every test gets a fresh browser context and reset fixture; teardown closes sockets and the server even after a failure.
+
+`backend.spec.mjs` also starts the real Python server through `tests/support.py`
+with temporary home/configuration/projects/names and an ephemeral loopback port.
+It checks the entire native module graph and JavaScript MIME types, the initial
+SSE snapshot, cast response and empty office in Chromium. It does not mock those
+endpoints. The helper cleans up when its stdin closes; normal shutdown is bounded.
+Set `PYTHON` to an interpreter path if `python3` is not available. Browser CI pins
+Python 3.13; production still has no Node dependency.
 
 The harness pauses Playwright's clock and installs seeded `Math.random` before the application starts. All fixture times derive from that clock. Advance normal application time with `page.clock.runFor()`; `tokenTally.advance()` does not control Date/timers/random and must not be used alongside the clock. Native EventSource reconnect uses browser networking time, so its test waits for connection events and holds/releases the reconnect instead of sleeping or assuming a particular delay.
 
@@ -206,26 +214,25 @@ The state classes and transcript helpers live in `token_tally/office.py`.
 | `Office.tick()` | guesses, clock-outs, broadcast |
 | `Handler` | HTTP routes, host check, hook key check, SSE |
 
-### static/office.js, top to bottom
+### Browser modules
 
-| Part | What it does |
+| Module | What it does |
 | --- | --- |
-| renderer, camera, lights | `LITE` decides shadows and resolution |
-| building helpers | `box`, `cyl`, `board`, `canvasTex`, `textTex`, `monitor`, `chair`, `plant` |
-| CRT screens | canvas textures: `off`, `work`, `mines`, `wait` |
-| floor plan | `buildFloor`, `buildWalls`, `cubicleRow`, `buildBench`, `buildStations`. The station spots live in `ST` and `SPOTS`. |
-| people | `makePerson()` builds a seeded random worker, `POSES` holds the animations, `Actor` handles walking, routing, labels and props |
-| behaviour | `intent()` maps status → place, animation and label; `think()` applies the linger rules; `bossBrain()` drives the Manager (he says a random line from `MANAGER_SAYS`) |
-| names | `DEFAULT_NAMES` and `DEFAULT_MANAGER`; `nameFor()` deals a name from the cast by session ID; `loadNames()` reads `/names` and re-deals when it changes |
-| sync and HUD | `sync()` diffs snapshots into arrivals, departures and memos; roster, personnel file, taskbar, Start menu |
-| feed | `connect()` (SSE), `DemoShift`, `setSource()` |
-| loop | `step()` simulates and renders; `frame()` throttles it in lite mode |
+| `static/office.js` | Creates the scene, actors and HUD once; source switching, picking, resize and the single frame loop; preserves `window.tokenTally` |
+| `static/office/scene.js` | Renderer, camera, shared material cache, geometry/building helpers, floor plan, spots, CRT textures and room updates; `LITE` controls shadows/resolution |
+| `static/office/actors.js` | People/poses, routing, desk allocation, cast, arrivals/departures, station linger, Manager and maintenance visits |
+| `static/office/hud.js` | Stable roster rows, personnel file, focus recovery, taskbar, Start menu and memos |
+| `static/office/state.js` | Live snapshot/time offset, source and selection state; `intent()` maps status to place, animation and label |
+| `static/office/feed.js` | One native EventSource connection and cast fetching |
+| `static/office/demo.js` | Deterministic `DemoShift` simulator |
+| `static/office/utils.js` | Escaping, hashing and seeded random helpers |
 
 ## Adding a station
 
-1. **Build it** in `buildStations()` from boxes. Remember `box(w, h, d, color, x, y, z)` puts `y` at the **bottom** of the box.
-2. **Add its spots** to a new list in `ST`. Give each spot `{x, z, face, sit?, via}`, where `via` lists the points from the spot back out to the aisle (z = 0) without crossing furniture. Face 0 looks at +z (towards the camera), π looks at −z.
-3. **Map a task to it:** add the task in `token_tally/office.py` `TASKS`, then add a case in `intent()` plus `STATION_ANIM`.
+1. **Build it** in `scene.js`'s `buildStations()` from boxes. Remember `box(w, h, d, color, x, y, z)` puts `y` at the **bottom** of the box.
+2. **Add its spots** to a new list in `ST` in `scene.js`. Give each spot `{x, z, face, sit?, via}`, where `via` lists the points from the spot back out to the aisle (z = 0) without crossing furniture. Face 0 looks at +z (towards the camera), π looks at −z.
+3. **Map a task to it:** add the task in `token_tally/office.py` `TASKS`, then add a case in `state.js`'s `intent()` plus `STATION_ANIM` in `actors.js`.
+
 
 ## Deploying
 
