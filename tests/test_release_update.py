@@ -472,10 +472,11 @@ class RuntimeVerificationTests(unittest.TestCase):
         process = Mock(pid=123, returncode=-9)
         process.communicate.side_effect = [subprocess.TimeoutExpired("docker compose ps", 120), ("", "")]
         with patch.object(module.subprocess, "Popen", return_value=process), \
-             patch.object(module.os, "killpg") as kill, \
+             patch.object(module.os, "killpg", create=True) as kill, \
+             patch.object(module.signal, "SIGKILL", 9, create=True), \
              self.assertRaisesRegex(DeployError, "status request timed out"):
             self.updater.dc(self.snapshot, "ps", "-q", "office")
-        kill.assert_called_once_with(123, signal.SIGKILL)
+        kill.assert_called_once_with(123, 9)
         persisted = module.Updater(self.path)
         self.assertEqual(persisted.state, before)
         with patch.object(module, "fetch_release", return_value=release()):
@@ -489,7 +490,8 @@ class RuntimeVerificationTests(unittest.TestCase):
         process = Mock(pid=123, returncode=-9)
         process.communicate.side_effect = [KeyboardInterrupt(), ("", "")]
         with patch.object(module.subprocess, "Popen", return_value=process), \
-             patch.object(module.os, "killpg"), self.assertRaises(KeyboardInterrupt):
+             patch.object(module.os, "killpg", create=True), \
+             patch.object(module.signal, "SIGKILL", 9, create=True), self.assertRaises(KeyboardInterrupt):
             self.updater.dc(self.snapshot, "ps", "-q", "office")
         persisted = module.Updater(self.path)
         self.assertEqual(persisted.state, before)
