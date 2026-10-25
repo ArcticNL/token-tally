@@ -864,7 +864,7 @@ function think(actor, t, nowSec) {
   let key = it.where;
   if (a.status === 'thinking' && WORK_STATIONS.has(actor.targetKey) && sinceFor < 25) key = actor.targetKey;
   if (key !== actor.targetKey && !actor.walking && t < actor.stayUntil) key = actor.targetKey;
-  if (key !== actor.targetKey) {
+  if (key !== actor.targetKey || (key === 'desk' && actor.desk && actor.target !== actor.desk.spot)) {
     const spot = key === 'desk' ? deskSpotFor(actor) : reserve(key, actor);
     if (spot) actor.goTo(spot, key);
   }
@@ -1011,15 +1011,21 @@ async function loadNames() {
 }
 
 function sync(list) {
-  const seen = new Set();
+  const seen = new Set(list.map((a) => a.id));
+  const restoreFileFocus = selectedId && !seen.has(selectedId) && $('#file').contains(document.activeElement);
+  // Release desks before arrivals, including when a full office replaces a worker.
+  for (const [id, actor] of actors) {
+    if (actor !== boss && !seen.has(id) && !actor.leaving) leave(actor);
+  }
+  if (selectedId && !seen.has(selectedId)) {
+    selectedId = null; follow = false;
+    for (const actor of actors.values()) actor.tagEl.classList.remove('sel');
+  }
   for (const a of list) {
-    seen.add(a.id);
     let actor = actors.get(a.id);
     if (!actor || actor.leaving) {
       if (actor) { actor.dispose(); actors.delete(a.id); }
       actor = new Actor(a.id, { name: nameFor(a.id), temp: a.temp, seed: hash(a.id) });
-      actor.desk = allocDesk(a.temp);
-      if (actor.desk) { actor.desk.owner = actor.id; actor.desk.spot.taken = actor.id; if (actor.desk.plaque) redraw(actor.desk.plaque, drawPlate(actor.name.toUpperCase(), false)); }
       actors.set(a.id, actor);
       const parent = a.parent && actors.get(a.parent);
       memo(a.temp ? `A temp, ${actor.name}, has arrived to help ${parent?.name ?? 'out'}.` : `${actor.name} clocked in${a.project ? ` (${a.project})` : ''}.`);
@@ -1035,14 +1041,22 @@ function sync(list) {
     }
     prev.set(a.id, { status: a.status, task: a.task });
   }
-  for (const [id, actor] of actors) {
-    if (actor === boss || seen.has(id) || actor.leaving) continue;
-    leave(actor);
+  // Map insertion order gives existing overflow workers first refusal; keep all
+  // current assignments stable and retain the cubicle/temp-desk preference.
+  for (const actor of actors.values()) {
+    if (actor === boss || actor.leaving || actor.desk) continue;
+    actor.desk = allocDesk(actor.temp);
+    if (actor.desk) {
+      actor.desk.owner = actor.id;
+      actor.desk.spot.taken = actor.id;
+      if (actor.desk.plaque) redraw(actor.desk.plaque, drawPlate(actor.name.toUpperCase(), false));
+    }
   }
   for (const id of [...prev.keys()]) if (!seen.has(id)) prev.delete(id);
   updateEotm(list);
   renderRoster();
   renderFile();
+  if (restoreFileFocus) focusRoster();
   updateEmpty();
 }
 
@@ -1053,7 +1067,7 @@ function leave(actor) {
   actor.label('Going home', null);
   actor.anim = 'stand';
   actor.goTo(SPOTS.door, 'door');
-  actor.onArrive = () => { actor.dispose(); if (actors.get(actor.id) === actor) actors.delete(actor.id); if (selectedId === actor.id) select(null); };
+  actor.onArrive = () => { actor.dispose(); if (actors.get(actor.id) === actor) actors.delete(actor.id); };
 }
 
 function updateEotm(list) {
@@ -1067,6 +1081,11 @@ function updateEotm(list) {
 
 // ---------------------------------------------------------------- HUD
 const MOOD_LABEL = { work: 'Working', think: 'Thinking', wait: 'Needs you', break: 'On break', slack: 'Slacking' };
+const rosterNodes = new Map();
+function statusView(actor) {
+  const a = actor.info, now = nowSec();
+  return intent(a, now - a.last, now - a.since);
+}
 function orderedActors() {
   const all = [...actors.values()].filter((a) => a !== boss && !a.leaving && a.info);
   const tops = all.filter((a) => !a.temp), out = [];
@@ -1077,25 +1096,54 @@ function orderedActors() {
 function renderRoster() {
   const rows = orderedActors();
   const list = $('#roster-list');
-  if (!rows.length) {
-    list.innerHTML = `<div class="empty-row">${source === 'demo' ? 'Staff arriving…' : 'Nobody on shift.'}</div>`;
-  } else {
-    list.innerHTML = rows.map(([a, depth]) => `
-      <div class="row${depth ? ' child' : ''}${a.id === selectedId ? ' sel' : ''}" role="listitem" tabindex="0" data-id="${esc(a.id)}">
-        <span class="dot" style="background:${a.look.shirt}"></span>
-        <span class="nm">${esc(a.name)}${a.temp ? '<span class="pill">Temp</span>' : ''}</span>
-        <span class="st ${a.mood}">${MOOD_LABEL[a.mood] || ''}</span>
-        <span class="sub">${a.info.machine ? `${esc(a.info.machine)} · ` : ''}${esc(a.info.project || 'unknown project')} · ${esc(a.line)}</span>
-      </div>`).join('');
+  const oldIds = [...list.querySelectorAll('.row')].map((row) => row.dataset.id);
+  const active = list.contains(document.activeElement) ? document.activeElement.closest('.row') : null;
+  const focusedId = active?.dataset.id, focusedIndex = oldIds.indexOf(focusedId), scrollTop = list.scrollTop;
+  const present = new Set(rows.map(([actor]) => actor.id));
+  for (const [id, node] of rosterNodes) {
+    if (!present.has(id)) { node.item.remove(); rosterNodes.delete(id); }
   }
+  list.querySelector('.empty-row')?.remove();
   const counts = { work: 0, think: 0, wait: 0, break: 0, slack: 0 };
-  for (const [a] of rows) counts[a.mood] = (counts[a.mood] || 0) + 1;
+  rows.forEach(([a, depth], index) => {
+    let node = rosterNodes.get(a.id);
+    if (!node) {
+      const item = document.createElement('div'), button = document.createElement('button');
+      item.setAttribute('role', 'listitem');
+      button.type = 'button'; button.dataset.id = a.id;
+      button.setAttribute('aria-controls', 'file');
+      button.innerHTML = '<span class="dot"></span><span class="nm"><span class="name"></span><span class="pill">Temp</span></span><span class="st"></span><span class="sub"></span>';
+      item.append(button);
+      node = { item, button }; rosterNodes.set(a.id, node);
+    }
+    const { item, button } = node, view = statusView(a);
+    button.className = `row${depth ? ' child' : ''}${a.id === selectedId ? ' sel' : ''}`;
+    button.setAttribute('aria-pressed', String(a.id === selectedId));
+    button.querySelector('.dot').style.background = a.look.shirt;
+    button.querySelector('.name').textContent = a.name;
+    button.querySelector('.pill').hidden = !a.temp;
+    button.querySelector('.st').className = `st ${view.mood}`;
+    button.querySelector('.st').textContent = MOOD_LABEL[view.mood] || '';
+    button.querySelector('.sub').textContent = `${a.info.machine ? a.info.machine + ' · ' : ''}${a.info.project || 'unknown project'} · ${view.line}`;
+    if (list.children[index] !== item) list.insertBefore(item, list.children[index] || null);
+    counts[view.mood] = (counts[view.mood] || 0) + 1;
+  });
+  if (!rows.length) {
+    const empty = document.createElement('div'); empty.className = 'empty-row';
+    empty.textContent = source === 'demo' ? 'Staff arriving…' : 'Nobody on shift.';
+    list.append(empty);
+  }
+  if (focusedId) {
+    const nextId = [focusedId, ...oldIds.slice(focusedIndex + 1), ...oldIds.slice(0, focusedIndex).reverse()].find((id) => rosterNodes.has(id));
+    const target = rosterNodes.get(nextId)?.button || $('#roster-min');
+    if (document.activeElement !== target) target.focus({ preventScroll: true });
+  }
+  list.scrollTop = scrollTop;
   $('#stats').innerHTML = `<span><b>${rows.length}</b> on shift</span><span><b>${counts.work + counts.think}</b> working</span>` +
     `<span style="color:${counts.wait ? 'var(--wait)' : 'inherit'}"><b>${counts.wait}</b> need you</span>` +
     `<span class="long"><b>${counts.break}</b> on break</span><span class="long"><b>${counts.slack}</b> slacking</span>`;
 }
 $('#roster-list').addEventListener('click', (e) => { const row = e.target.closest('.row'); if (row) select(row.dataset.id, true); });
-$('#roster-list').addEventListener('keydown', (e) => { const row = e.target.closest('.row'); if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(row.dataset.id, true); } });
 $('#roster-min').addEventListener('click', () => { const r = $('#roster'); r.classList.toggle('min'); $('#roster-min').textContent = r.classList.contains('min') ? '□' : '_'; });
 
 function fmtAgo(sec) { sec = Math.max(0, Math.round(sec)); if (sec < 60) return `${sec}s`; if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`; return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`; }
@@ -1103,7 +1151,7 @@ function fmtTime(ts) { return new Date(ts * 1000 - (source === 'live' ? live.off
 function renderFile() {
   const actor = selectedId && actors.get(selectedId);
   const win = $('#file');
-  if (!actor || !actor.info) { win.classList.add('hidden'); return; }
+  if (!actor || actor.leaving || !actor.info) { win.classList.add('hidden'); return; }
   win.classList.remove('hidden');
   const a = actor.info, parent = a.parent && actors.get(a.parent);
   $('#file-title').textContent = `Personnel File: ${actor.name}`;
@@ -1114,16 +1162,28 @@ function renderFile() {
       <dt>Project</dt><dd>${esc(a.project || '—')}</dd>
       ${a.title ? `<dt>Session</dt><dd>${esc(a.title)}</dd>` : ''}
       <dt>Assignment</dt><dd>${esc(a.assignment || '—')}</dd>
-      <dt>Right now</dt><dd>${esc(actor.line)}</dd>
+      <dt>Right now</dt><dd>${esc(statusView(actor).line)}</dd>
       <dt>For</dt><dd>${fmtAgo(nowSec() - a.since)}</dd>
       <dt>Tasks done</dt><dd>${a.tools}</dd>
       <dt>Badge no.</dt><dd><code>${esc(a.id.slice(0, 13))}</code></dd>
     </dl>
     <div class="log sunken">${(a.log || []).slice().reverse().map((l) => `<div>${fmtTime(l.t)}  ${esc(l.text)}</div>`).join('') || '<div>No entries yet.</div>'}</div>`;
 }
-$('#file-close').addEventListener('click', () => select(null));
+function focusRoster(id) {
+  const row = rosterNodes.get(id)?.button || rosterNodes.values().next().value?.button;
+  const target = $('#roster').classList.contains('min') ? $('#roster-min') : row || $('#roster-min');
+  target.focus({ preventScroll: true });
+}
+function closeFile() {
+  const id = selectedId;
+  select(null);
+  if (id) focusRoster(id);
+}
+$('#file-close').addEventListener('click', closeFile);
 
 function select(id, focus = false) {
+  const actor = actors.get(id);
+  if (!actor?.info || actor.leaving || actor === boss) id = null;
   selectedId = id;
   follow = !!id && focus;
   for (const a of actors.values()) a.tagEl.classList.toggle('sel', a.id === id);
@@ -1175,7 +1235,7 @@ startMenu.addEventListener('click', (e) => {
   }
   if (cmd === 'about') $('#about').classList.remove('hidden');
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { select(null); startMenu.classList.add('hidden'); } });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeFile(); startMenu.classList.add('hidden'); } });
 
 // ---------------------------------------------------------------- live feed & demo shift
 function nowSec() { return Date.now() / 1000 + (source === 'live' ? live.offset : 0); }

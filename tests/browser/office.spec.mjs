@@ -185,7 +185,6 @@ test('replacement snapshot immediately reuses the departing staff desk @pr13', a
   await office.publish([agent('newcomer'), ...staff.slice(1)]);
   await expect(row(page, 'newcomer')).toBeVisible();
   await expect(rows(page)).toHaveCount(12);
-  test.fail(true, 'PR13: sync allocates newcomers before releasing departures, and never retries');
   expect(await deskOwners(page)).toContain('newcomer');
 });
 
@@ -198,7 +197,6 @@ test('roster focus survives periodic HUD refresh and an identical snapshot @pr13
   await expect(row(page, 'focused')).toBeFocused();
   await page.clock.runFor(1200);
   await expect(row(page, 'focused')).toBeVisible();
-  test.fail(true, 'PR13: renderRoster replaces its focused row with innerHTML');
   await expect(row(page, 'focused')).toBeFocused();
   await office.publish(staff);
   await expect(row(page, 'focused')).toBeFocused();

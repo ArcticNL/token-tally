@@ -170,7 +170,7 @@ These are UI tests against a **synthetic backend**, not Python backend integrati
 
 The harness pauses Playwright's clock and installs seeded `Math.random` before the application starts. All fixture times derive from that clock. Advance normal application time with `page.clock.runFor()`; `tokenTally.advance()` does not control Date/timers/random and must not be used alongside the clock. Native EventSource reconnect uses browser networking time, so its test waits for connection events and holds/releases the reconnect instead of sleeping or assuming a particular delay.
 
-Tests cover live/demo, normal/lite, full snapshots, parent/subagent ordering, more than twelve staff, selection, a tablet viewport and reconnect. DOM and user interactions are primary; existing `tokenTally.deskSlots` is a read-only oracle for desk ownership. Two executed `test.fail()` regressions track the known replacement-desk and roster-focus bugs for PR13. An unexpected pass fails the suite, requiring removal of the annotation when the bug is fixed.
+Tests cover live/demo, normal/lite, full snapshots, parent/subagent ordering, more than twelve staff, selection, a tablet viewport and reconnect. DOM and user interactions are primary; existing `tokenTally.deskSlots` is a read-only oracle for desk ownership. Replacement-desk and roster-focus regressions must pass normally, alongside overflow reassignment, direct status updates, departure/return and keyboard focus recovery.
 
 Repeat the suite to check isolation and reproducibility:
 
