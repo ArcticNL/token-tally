@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Keep stopped workers idle on duplicate results.** A completed tool result
+  arriving again through hooks or local transcripts no longer makes a stopped
+  worker appear to be thinking. New tool calls still resume work normally.
+
+- **Reject unrecorded release launch overrides.** Managed bootstrap and updates
+  refuse custom entrypoints, commands or working directories that would be lost
+  when recreating the container. Install the updated trusted host updater
+  separately and migrate custom key/names paths before rebootstrap; see
+  [release updates](docs/release-updates.md).
+
 - **Keep the selected shift when changing quality.** Switching between low and
   high quality preserves the current live or demo choice after reloading, even
   when that choice differs from the page's original URL.
