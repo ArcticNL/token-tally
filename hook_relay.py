@@ -193,7 +193,17 @@ def sign(key, body, now=None):
 def _post(urls, key, body, deadline):
     """Try a bounded number of addresses inside the caller's worker deadline."""
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # straight to the office, never via a proxy
-    for url in sorted(urls, key=lambda u: not is_tailscale(u))[:MAX_ATTEMPTS]:
+    addresses = []
+    for url in urls:
+        if time.monotonic() >= deadline:
+            return None
+        try:
+            addresses.append((not is_tailscale(url), url))
+        except ValueError:
+            continue  # one malformed address must not disable the other destinations
+    # Sort only parsed addresses, preserving their order within each priority.
+    # Rejected entries do not use an attempt; preparation shares the same deadline.
+    for _, url in sorted(addresses, key=lambda address: address[0])[:MAX_ATTEMPTS]:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break

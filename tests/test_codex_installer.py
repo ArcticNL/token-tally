@@ -164,6 +164,39 @@ class CodexInstallerTests(unittest.TestCase):
             self.assertFalse(self.config.exists())
             self.assertFalse(self.relay.exists())
 
+    def test_installed_relay_delivers_with_malformed_primary_or_extra_address(self):
+        with Sandbox() as sandbox, sandbox.activate(), mock.patch.object(installer, "OPENER", OPENER):
+            keyfile = sandbox.data / "synthetic.key"
+            keyfile.write_text(KEY, encoding="utf-8")
+            office = sandbox.start_server(keyfile)
+            self.fetch.side_effect = REAL_FETCH
+            self.probe.side_effect = REAL_CHECK_KEY
+            self.capabilities.side_effect = REAL_CAPABILITIES
+            bad = "http://[broken"
+            for case, primary, extras in (("extra", office.url, [bad]), ("primary", bad, [office.url])):
+                with self.subTest(malformed=case):
+                    self.invoke(server=primary, extra_url=extras)
+                    self.assertEqual(self.read_json(self.config)["urls"],
+                                     [primary + "/hook"] + [url + "/hook" for url in extras])
+                    diagnostic = self.invoke("check")
+                    self.assertIn("Configured: yes", diagnostic)
+                    self.assertIn("Key probe: ok", diagnostic)
+                    command = self.read_json(self.settings)["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+                    session = "fixture-malformed-" + case
+                    event = {"hook_event_name": "SessionStart", "source": "startup", "session_id": session,
+                             "prompt": "private malformed-address fixture"}
+                    result = subprocess.run(shlex.split(command), input=json.dumps(event),
+                                            capture_output=True, text=True, env=sandbox.env,
+                                            cwd=sandbox.work, timeout=5, check=False)
+                    self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "{}\n", ""))
+                    status, body = request(office.url + "/state")
+                    self.assertEqual(status, 200)
+                    actors = [actor for actor in json.loads(body)["agents"] if actor["session_id"] == session]
+                    self.assertEqual(len(actors), 1, "neutral exit alone does not prove signed event receipt")
+                    self.assertEqual((actors[0]["provider"], actors[0]["client_id"]),
+                                     ("codex", self.read_json(self.config)["client_id"]))
+                    self.assertNotIn(b"private malformed-address fixture", body)
+
     def test_reinstall_is_byte_and_mtime_stable_with_stable_identity(self):
         self.invoke()
         before, client = self.snapshot(), self.read_json(self.config)["client_id"]

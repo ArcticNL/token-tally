@@ -199,6 +199,49 @@ class RelayTransportTests(unittest.TestCase):
             self.assertGreater(call.kwargs["timeout"], 0)
             self.assertLessEqual(call.kwargs["timeout"], relay.ATTEMPT_TIMEOUT)
 
+    def test_malformed_addresses_leave_valid_primary_and_fallback_usable(self):
+        malformed = ("http://[broken/hook", "http://broken]/hook",
+                     "http://office.invalid\uff1a8377/hook")
+        for bad in malformed:
+            for urls in ([URLS[0], bad], [bad, URLS[0]]):
+                with self.subTest(urls=urls):
+                    self.opener.open.reset_mock()
+                    self.write_config(urls=urls)
+                    self.invoke()
+                    self.assertEqual([call.args[0].full_url for call in self.opener.open.call_args_list],
+                                     [URLS[0]])
+
+    def test_all_malformed_addresses_stay_silent_and_bounded(self):
+        self.write_config(urls=["http://[broken/hook"] * 100)
+        started = time.monotonic()
+        self.invoke()
+        self.assertLess(time.monotonic() - started, 0.3)
+        self.opener.open.assert_not_called()
+
+    def test_malformed_addresses_do_not_consume_tailnet_attempt_budget(self):
+        bad = "http://[broken/hook"
+        tailnet = ["http://fixture.ts.net/hook", "http://100.64.0.1/hook"]
+        urls = [bad] * relay.MAX_ATTEMPTS + [URLS[0], tailnet[0], bad, tailnet[1], URLS[1]]
+        self.opener.open.side_effect = urllib.error.URLError("synthetic unavailable")
+        self.assertIsNone(relay.post(urls, KEY, b"{}"))
+        self.assertEqual([call.args[0].full_url for call in self.opener.open.call_args_list],
+                         tailnet + [URLS[0]])
+
+    def test_address_preparation_obeys_the_shared_deadline(self):
+        now, classified = [10.0], []
+        classify = relay.is_tailscale
+
+        def slow_classify(url):
+            classified.append(url)
+            now[0] += 0.1
+            return classify(url)
+
+        with mock.patch.object(relay.time, "monotonic", side_effect=lambda: now[0]), \
+                mock.patch.object(relay, "is_tailscale", side_effect=slow_classify):
+            self.assertIsNone(relay._post(["http://[broken/hook"] * 100 + URLS, KEY, b"{}", 10.15))
+        self.assertLessEqual(len(classified), 2)
+        self.opener.open.assert_not_called()
+
     def test_any_http_error_stops_fallback(self):
         self.opener.open.side_effect = urllib.error.HTTPError(URLS[0], 403, "synthetic rejected", {}, io.BytesIO())
         self.assertEqual(relay.post(URLS, KEY, b"{}"), 403)

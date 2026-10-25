@@ -92,6 +92,17 @@ class CodexRelayTests(unittest.TestCase):
             self.invoke({'session_id': 's', 'hook_event_name': name})
         self.opener.open.assert_not_called()
 
+    def test_malformed_addresses_keep_neutral_output_and_valid_delivery(self):
+        bad, good = 'http://[broken/hook', self.cfg['urls'][0]
+        for urls, expected in (([good, bad], [good]), ([bad, good], [good]), ([bad] * 100, [])):
+            with self.subTest(urls=urls[:2], count=len(urls)):
+                self.write_config({**self.cfg, 'urls': urls})
+                self.opener.open.reset_mock()
+                started = time.monotonic()
+                self.invoke(args=['--provider', 'codex', '--deadline-ms', '50'])
+                self.assertLess(time.monotonic() - started, 0.3)
+                self.assertEqual([call.args[0].full_url for call in self.opener.open.call_args_list], expected)
+
     def test_provider_mismatch_and_v1_codex_never_downgrade(self):
         for cfg in ({**self.cfg, 'provider': 'claude'}, {**self.cfg, 'payload_version': 1},
                     {**self.cfg, 'provider': 'unknown'}):

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Keep relay fallbacks usable with malformed addresses.** An address that
+  cannot be parsed no longer stops delivery to valid configured destinations or
+  consumes one of their three attempts. Tailscale priority and the shared delivery
+  deadline still apply. Update the office, then download and rerun its installer
+  on each reporting PC to replace the standalone relay.
+
 - **Keep stopped workers idle on duplicate results.** A completed tool result
   arriving again through hooks or local transcripts no longer makes a stopped
   worker appear to be thinking. New tool calls still resume work normally.
