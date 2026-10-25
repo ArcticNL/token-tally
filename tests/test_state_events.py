@@ -96,6 +96,54 @@ class StateEventsTests(unittest.TestCase):
         self.assertEqual(set(a.pending), {(None, 'a')})
         self.assertEqual(set(a.waits), {(None, 'a')})
 
+    def test_transcript_only_interrupt_closes_pending_call_before_next_prompt(self):
+        path = self.sandbox.projects / 'project' / 'session.jsonl'
+        path.parent.mkdir()
+        records = [
+            {'type': 'assistant', 'sessionId': 'session', 'message': {'content': [
+                {'type': 'tool_use', 'id': 'call', 'name': 'Bash', 'input': {}}]}},
+            {'type': 'user', 'sessionId': 'session', 'message': {
+                'content': '[Request interrupted by user]'}},
+            {'type': 'user', 'sessionId': 'session', 'message': {'content': 'New fixture assignment'}},
+        ]
+        for index, record in enumerate(records):
+            with path.open('a', encoding='utf-8') as handle:
+                handle.write(json.dumps(record) + '\n')
+            self.clock[0] += 1
+            self.office.tick()
+            self.assertEqual(self.agent().status, ('working', 'idle', 'thinking')[index])
+        a = self.agent()
+        self.assertFalse(a.hooked)
+        self.assertFalse(a.pending)
+        self.assertFalse(a.waits)
+        self.assertEqual(sum(item['text'] == 'New assignment' for item in a.log), 1)
+        self.clock[0] += self.office_module.WAIT_GUESS + 1
+        self.office.tick()
+        self.assertEqual(a.status, 'thinking')
+        self.assertFalse(a.guess)
+
+    def test_transcript_only_prompt_closes_pending_call_and_inferred_wait(self):
+        self.transcript([{'type': 'tool_use', 'id': 'call', 'name': 'Bash', 'input': {}}])
+        self.clock[0] += self.office_module.WAIT_GUESS + 1
+        self.office.tick()
+        self.assertEqual(self.agent().status, 'waiting')
+        self.assertTrue(self.agent().guess)
+        self.transcript('New fixture assignment', kind='user')
+        a = self.agent()
+        self.assertEqual(a.status, 'thinking')
+        self.assertFalse(a.pending)
+        self.assertFalse(a.waits)
+        self.assertFalse(a.guess)
+
+    def test_uncorrelated_transcript_prompt_cannot_erase_hook_wait(self):
+        self.hook('PreToolUse', tool_use_id='call', tool_name='Bash')
+        self.hook('PermissionRequest', tool_use_id='call', tool_name='Bash')
+        self.transcript('Historical fixture assignment', kind='user')
+        a = self.agent()
+        self.assertEqual(a.status, 'waiting')
+        self.assertEqual(set(a.pending), {(None, 'call')})
+        self.assertEqual(set(a.waits), {(None, 'call')})
+
     def test_native_hook_enriches_untagged_pending_call_without_losing_status(self):
         self.emit('tool_start', tool_call_id='call', tool_name='Bash', source='transcript')
         self.emit('tool_start', turn_id='turn', tool_call_id='call', tool_name='Bash')

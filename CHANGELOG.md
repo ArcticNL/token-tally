@@ -8,6 +8,10 @@
 - **Atomic live subscriptions.** Opening or reconnecting a live view cannot miss
   a state change between its initial snapshot and event registration.
 
+- **Local transcript cancellation.** In transcript-only sessions, an interruption
+  or new prompt closes earlier pending tools instead of leaving a false permission
+  wait. Uncorrelated transcript history still cannot clear observed hook waits.
+
 - **Protect legacy provider ownership.** Existing relay configurations without a
   `provider` field remain Claude configurations. A Codex install refuses to replace
   them before network access or writes, including when both configuration roots

@@ -333,7 +333,7 @@ class Office:
                     return
                 # Hook+transcript without native correlation is ambiguous. A
                 # historical transcript prompt must not erase live tool/wait evidence.
-                if not e.turn_id and e.source == "transcript" and (a.pending or a.waits):
+                if not e.turn_id and e.source == "transcript" and a.hooked and (a.pending or a.waits):
                     return
                 if e.turn_id == a.current_turn and e.turn_id:
                     if not self.remember("prompt", e.actor, e.turn_id, now):
@@ -404,7 +404,7 @@ class Office:
                     a.source = e.source
                     a.refresh(now, "idle")
             elif e.kind in ("stop", "interrupt"):
-                if e.source == "transcript" and e.turn_id is None and (a.pending or a.waits):
+                if e.source == "transcript" and e.turn_id is None and a.hooked and (a.pending or a.waits):
                     return  # no causal link from a historical line to these live calls
                 self.close_calls(a, [k for k in (*a.pending, *a.waits) if k[0] == e.turn_id], now)
                 if current:
