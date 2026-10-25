@@ -302,6 +302,93 @@ class DeploymentTests(unittest.TestCase):
         self.assertFalse(client.confirmed(result.stdout + result.stderr, candidate))
         self.assertIsNone(self.live())
 
+    def assert_manual_transition(self, candidate, source):
+        # The operator stages the wrapper from the reviewed SHA, not old checkout.
+        wrapper = self.base / "staged-deploy.sh"
+        wrapper.write_text(self.command("git", "--git-dir=" + str(self.repo),
+                                        "show", candidate + ":pi/deploy.sh").stdout)
+        result = self.command("sh", str(wrapper), str(self.repo), candidate, source)
+        receipt = json.loads(next(line.split(" ", 1)[1] for line in result.stdout.splitlines()
+                                  if line.startswith("TOKEN_TALLY_DEPLOY ")))
+        saved = json.loads((self.repo / "office-deploy-result.json").read_text())
+        self.assertEqual(receipt, saved)
+        self.assertEqual((receipt["status"], receipt["commit"]), ("healthy", candidate))
+        self.assertEqual(self.live(), candidate)
+        self.assertEqual((self.deploy / "version.txt").read_text(), "manual-transition")
+        for name in ("hook.key", "names.txt", ".env", "office.env"):
+            self.assertEqual((self.deploy / name).read_text(), "synthetic-preserve\n")
+
+    def test_old_installed_push_hook_requires_manual_transition(self):
+        self.legacy_checkout()
+        hook = self.repo / "hooks/post-receive"
+        # Historical d416b35 caller: it receives the new SHA, but passes only REPO.
+        hook.write_text('''#!/bin/sh
+set -e
+while read -r old new ref; do
+    [ "$ref" = "refs/heads/main" ] || continue
+    git show "$new:pi/deploy.sh" | sh -s -- "$(pwd)"
+done
+''')
+        hook.chmod(0o755)
+        candidate = self.commit("manual-transition")
+        result = self.command("git", "push", str(self.repo), "main")
+        self.assertEqual(result.returncode, 0)  # Git success is not deploy success.
+        self.assertIn("usage: deploy.sh REPO SHA SOURCE", result.stderr)
+        self.assertEqual(self.live(), self.a)
+        self.assertEqual((self.deploy / "version.txt").read_text(), "first")
+        self.assertFalse((self.repo / "office-deploy-result.json").exists())
+        self.assertFalse((self.fake / "calls").exists())
+        hook.chmod(0o600)  # Operator pauses push deployment before recovery.
+        self.assert_manual_transition(candidate, "push")
+
+    def test_old_checkout_github_poller_requires_manual_transition(self):
+        # Preserve the historical d416b35 control flow, with no concurrent callers.
+        old_poller = '''#!/bin/sh
+set -e
+REPO="${REPO:-$HOME/git/token-tally-office.git}"
+g() { git --git-dir="$REPO" "$@"; }
+exec 9>"$REPO/office-pull.lock"
+flock -n 9 || exit 0
+g fetch --quiet origin +refs/heads/main:refs/remotes/origin/main
+NEW=$(g rev-parse refs/remotes/origin/main)
+MAIN=$(g rev-parse main)
+LIVE=$(g rev-parse --verify --quiet refs/office/live || echo "$MAIN")
+[ "$NEW" = "$LIVE" ] && exit 0
+if g merge-base --is-ancestor "$NEW" "$LIVE"; then exit 0; fi
+if ! g merge-base --is-ancestor "$LIVE" "$MAIN" || ! g merge-base --is-ancestor "$MAIN" "$NEW"; then exit 1; fi
+g update-ref refs/heads/main "$NEW" "$MAIN"
+g show "$NEW:pi/deploy.sh" | sh -s -- "$REPO" "from GitHub, $(g rev-list --count "$LIVE..$NEW") new commit(s)"
+'''
+        (self.source / "pi/github-pull.sh").write_text(old_poller)
+        self.a = self.commit("old-poller")
+        self.command("git", "push", "--quiet", str(self.repo), "main")
+        self.legacy_checkout()
+        # flock is not installed on every supported Unix CI host; no locking is
+        # under test here. Real lock serialization is checked separately below.
+        (self.fake / "flock").write_text("#!/bin/sh\nexit 0\n")
+        (self.fake / "flock").chmod(0o755)
+        shutil.copyfile(ROOT / "pi/github-pull.sh", self.source / "pi/github-pull.sh")
+        candidate = self.commit("manual-transition")
+        for _ in range(2):
+            result = self.command("sh", str(self.deploy / "pi/github-pull.sh"), check=False)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("usage: deploy.sh REPO SHA SOURCE", result.stderr)
+            self.assertEqual(self.live(), self.a)
+            self.assertEqual((self.deploy / "version.txt").read_text(), "old-poller")
+        self.assertEqual(self.command("git", "--git-dir=" + str(self.repo),
+                                      "rev-parse", "main").stdout.strip(), candidate)
+        self.assertFalse((self.repo / "office-deploy-result.json").exists())
+        self.assertFalse((self.fake / "calls").exists())
+        # Missing live ref masks subsequent failure by falling back to bare main.
+        self.command("git", "--git-dir=" + str(self.repo), "update-ref", "-d", "refs/office/live")
+        self.assertEqual(self.command("sh", str(self.deploy / "pi/github-pull.sh")).returncode, 0)
+        self.assertEqual((self.deploy / "version.txt").read_text(), "old-poller")
+        # The fixture knows the actual old checkout; an operator must verify it.
+        self.command("git", "--git-dir=" + str(self.repo), "update-ref", "refs/office/live", self.a)
+        self.assert_manual_transition(candidate, "github")
+        self.assertEqual((self.deploy / "pi/github-pull.sh").read_bytes(),
+                         (ROOT / "pi/github-pull.sh").read_bytes())
+
     def test_missing_helper_is_not_a_successful_empty_shell(self):
         (self.source / "pi/deploy.py").unlink()
         candidate = self.commit("missing-helper")

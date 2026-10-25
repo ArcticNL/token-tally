@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Require a manual first Pi upgrade.** Old installed push/pull entrypoints use
+  an incompatible one/two-argument deploy contract and fail before checkout,
+  even if bare `main` or a successful Git push suggests an update. Follow the
+  [explicit-SHA transition](docs/pi-server.md#required-one-time-transition-from-the-old-deploy-scripts):
+  pause both routes, preserve private data, verify the deployment and install the
+  new entrypoints before resuming. Managed releases have a separate bootstrap.
+
+- **Improve test-fixture failure diagnostics.** Preserve the first safe protocol
+  error, wait for output to drain during shutdown and report the process exit
+  code on failure. This improves evidence for intermittent teardown failures; it
+  does not claim their original cause is fixed.
+
 - **Allow clean legacy deployment upgrades.** A push that advances `main` no
   longer makes an unchanged older Compose file appear locally modified. Legacy
   symbolic checkouts use their recorded checkout revision; detached checkouts

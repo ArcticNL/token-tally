@@ -97,8 +97,11 @@ Older instructions added the names mount directly to `compose.yaml`. Legacy
 deployments now refuse a locally modified `compose.yaml` before checking out or
 restarting anything, so the active configuration and names remain in place.
 
-Before retrying, pause both legacy update routes and let any running deployment
-finish. Back up the edited Compose file outside the checkout. Move its local
+For an installation still using the old deployment entrypoints, perform this
+Compose migration during the [pause and preservation stage](pi-server.md#pause-preserve-and-stage)
+of the mandatory manual transition, **before invoking the deployer**. The old
+argument contract cannot start the new deployer. Before retrying, pause both
+legacy update routes and let any running deployment finish. Back up the edited Compose file outside the checkout. Move its local
 settings into `compose.override.yaml` as above, preserving any existing override
 settings. Compare against the revision that populated the checkout: older
 installations left `HEAD` attached to `main` and recorded that checkout in
@@ -123,8 +126,10 @@ docker compose config
 Inspect the resolved `/data` and `/data/names.txt` mounts, user and ports before
 retrying the exact deployment. Do not remove or recreate the data volume. The
 failed push may already have updated the bare repository's `main`; an up-to-date
-push will not rerun its hook. Use the manual legacy deployer or trigger the GitHub
-pull service after migration, then re-enable the paused routes.
+push will not rerun its hook. Complete the explicit-SHA manual transition before
+resuming old installations. On an already transitioned installation, use the
+manual legacy deployer or the new GitHub pull service after Compose migration,
+then re-enable the paused routes.
 
 ## Everyday commands
 

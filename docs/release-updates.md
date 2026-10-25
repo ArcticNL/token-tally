@@ -1,23 +1,35 @@
 # Optional release updates on a Docker host
 
 Automatic release updates are **off by default**. The example policy is `paused`;
-installing repository code alone does not change a running Pi. Non-Docker offices
-keep their manual/systemd deployment path. The optional updater needs Python 3.9+,
+these defaults apply only after the managed host tools and entrypoints are
+installed. Non-Docker offices keep their manual/systemd deployment path. The optional updater needs Python 3.9+,
 Docker with Compose, a public GitHub repository and published immutable releases
 as described in [releases](releases.md). A private GHCR package also needs a host
 Docker login with package-read permission; never give the Pi publishing rights.
 
 ## Operator transition, before merging into a followed main
 
-Legacy push hooks and the old GitHub timer can deploy a merge immediately. The
-operator must pause **both routes**, let in-flight deployment finish under the
-shared `office-deploy.lock`, and confirm the current office still serves before
-transitioning. Stopping only the timer does not disable direct push deployment.
-Do not kill an in-flight deployment just to obtain the lock. Repository work and
+Pause **both routes** before transition and confirm the current office still
+serves. A host with the new legacy entrypoints can deploy a followed-main update
+immediately. The oldest one/two-argument callers instead fail against the new
+`deploy.sh` before checkout, potentially leaving bare `main` ahead of the running
+office; see the [legacy transition explanation](pi-server.md#required-one-time-transition-from-the-old-deploy-scripts).
+Neither condition installs or activates managed release mode.
+
+Stop the timer, disable the installed push hook, and arrange a maintenance window
+with no pushes. Let active pull services, hooks and deploy children finish; do not
+kill them. The oldest push hook has no shared lock, and its poller uses
+`office-pull.lock`; taking only `office-deploy.lock` does not drain those routes.
+Follow the [pause and preservation steps](pi-server.md#pause-preserve-and-stage),
+then take `office-deploy.lock` for the host-file changes below. Do not run the
+legacy deployment step when choosing this managed transition. Repository work and
 isolated tests need no production pause; merging/deploying needs separate approval.
 
-Use the bare repository (normally `$HOME/git/token-tally-office.git`) as the policy
-and state directory. While both old routes are paused and the lock is held:
+Obtain and review the new host files from one explicit verified commit outside
+the live checkout; it may still contain the old source after a failed automatic
+update. Preserve private data and installation-specific settings. Use the bare
+repository (normally `$HOME/git/token-tally-office.git`) as the policy and state
+directory. While both old routes are paused and the lock is held:
 
 1. Create `office-host/` there and copy `pi/release_update.py`, `pi/release_contract.py`,
    `pi/deploy.py` and `pi/compose.release.yaml` into it. These trusted host files must be
