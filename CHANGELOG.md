@@ -18,6 +18,8 @@
 
 - Python checks now run through `python tests/run_checks.py` with temporary configuration and dynamic local ports. `server.py --port 0` reports its actual listening port.
 
+- Server startup no longer waits for an unnecessary reverse-DNS lookup of its listening address.
+
 - **Auto-deploy works with Docker.** `pi/deploy.sh` rebuilds and restarts the container when the office folder has `compose.yaml` and `.env`, so push-to-deploy and the GitHub timer keep working after moving to Docker.
 - **A data folder instead of a volume:** set `OFFICE_DATA=./data` plus `OFFICE_UID` and `OFFICE_GID` in `.env` to keep the key and `names.txt` in a plain folder.
 

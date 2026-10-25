@@ -16,10 +16,39 @@ from unittest import mock
 
 sys.dont_write_bytecode = True
 import run_checks  # noqa: E402
-from support import Sandbox, capture_server, request  # noqa: E402
+from support import REPO, Sandbox, capture_server, request  # noqa: E402
 
 
 class HarnessTests(unittest.TestCase):
+    def test_server_startup_without_reverse_dns(self):
+        # Exercise the real CLI and container entrypoint with a resolver that
+        # fails immediately, instead of depending on an external DNS timeout.
+        launcher = """import runpy, socket, sys
+from pathlib import Path
+from unittest import mock
+sys.argv = sys.argv[1:]
+sys.path.insert(0, str(Path(sys.argv[0]).parent))
+with mock.patch.object(socket, 'getfqdn', side_effect=AssertionError('unexpected reverse DNS')), \\
+        mock.patch.object(socket, 'gethostbyaddr', side_effect=AssertionError('unexpected reverse DNS')):
+    runpy.run_path(sys.argv[0], run_name='__main__')
+"""
+        for script in ("server.py", "docker/entrypoint.py"):
+            with self.subTest(script=script):
+                with Sandbox() as sandbox:
+                    args = [sys.executable, "-B", "-u", "-c", launcher, str(REPO / script)]
+                    env = None
+                    if script == "server.py":
+                        args += ["--host", "127.0.0.1", "--port", "0", "--names-file", str(sandbox.names)]
+                    else:
+                        env = {"OFFICE_APP": str(REPO), "OFFICE_DATA": str(sandbox.data),
+                               "OFFICE_LISTEN": "127.0.0.1", "OFFICE_PORT": "0", "OFFICE_ALLOW_HOSTS": "office.test"}
+                    child = sandbox.spawn(args, env).wait_ready()
+                    self.assertEqual(json.loads(request(child.url + "/state")[1])["agents"], [])
+                    self.assertEqual(request(child.url + "/state", headers={"Host": "evil.example"})[0], 403)
+                    self.assertEqual(json.loads(request(child.url + "/names")[1])["names"], ["Alice"])
+                self.assertIsNotNone(child.process.poll())
+                self.assertFalse(sandbox.root.exists())
+
     def test_environment_and_dynamic_ports(self):
         with tempfile.TemporaryDirectory() as directory:
             decoy = Path(directory) / "claude" / "projects" / "decoy"
@@ -73,7 +102,9 @@ class HarnessTests(unittest.TestCase):
         self.assertIsNotNone(child.process.poll())
         self.assertFalse(sandbox.root.exists())
 
-    def test_capture_server_closes_listener(self):
+    @mock.patch.object(socket, "getfqdn", side_effect=AssertionError("unexpected reverse DNS"))
+    @mock.patch.object(socket, "gethostbyaddr", side_effect=AssertionError("unexpected reverse DNS"))
+    def test_capture_server_closes_listener(self, _gethostbyaddr, _getfqdn):
         with capture_server() as (url, captured):
             self.assertEqual(request(url, data=b"synthetic", headers={"Content-Type": "text/plain"})[0], 204)
         self.assertEqual(len(captured), 1)

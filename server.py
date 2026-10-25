@@ -21,6 +21,7 @@ import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from socketserver import TCPServer
 from urllib.parse import urlparse
 
 from token_tally.office import Agent, Office, PROJECTS, SCAN_EVERY
@@ -116,6 +117,14 @@ def read_names():
 
 
 office = Office(projects=PROJECTS)
+
+
+class OfficeHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer resolves a canonical name here, which can block startup on
+        # reverse DNS. Our handlers use the explicit Host allowlist instead.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -255,7 +264,7 @@ def main():
         ALLOWED_HOSTS.add(args.host.lower())
 
     threading.Thread(target=run_loop, daemon=True).start()
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    server = OfficeHTTPServer((args.host, args.port), Handler)
     server.daemon_threads = True
     url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{server.server_port}/"
     print(f"Token & Tally is open for business at {url}")

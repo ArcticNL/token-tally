@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socketserver
 import subprocess
 import sys
 import tempfile
@@ -158,11 +159,12 @@ def capture_server():
         def log_message(self, *args):
             pass
 
-    with http.server.HTTPServer(("127.0.0.1", 0), Capture) as server:
+    # Capture only needs a TCP listener; HTTPServer also performs reverse DNS.
+    with socketserver.TCPServer(("127.0.0.1", 0), Capture) as server:
         thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         thread.start()
         try:
-            yield f"http://127.0.0.1:{server.server_port}/hook", captured
+            yield f"http://127.0.0.1:{server.server_address[1]}/hook", captured
         finally:
             server.shutdown()
             thread.join(timeout=5)
