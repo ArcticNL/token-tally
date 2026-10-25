@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 
 from token_tally.office import Agent, Office, PROJECTS, SCAN_EVERY
 from token_tally.build_info import current_build
+from token_tally.protocol import CAPABILITIES, PayloadError, decode
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -159,6 +160,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, office.payload().encode(), "application/json")
         if path == "/version":
             return self.send(200, json.dumps(current_build()).encode(), "application/json")
+        if path == "/capabilities":
+            return self.send(200, json.dumps(CAPABILITIES).encode(), "application/json")
         if path == "/names":
             return self.send(200, json.dumps(read_names()).encode(), "application/json")
         if path == "/kit/hook_relay.py":  # the installer fetches the one relay that lives in the project root
@@ -203,10 +206,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(403, problem.encode())
         try:
             data = json.loads(body or b"{}")
-        except ValueError:
+        except (ValueError, UnicodeError, RecursionError):
             return self.send(400, b"Bad JSON")
-        if isinstance(data, dict):
-            office.hook(data)
+        if isinstance(data, dict) and data.get("payload_version") == 2 and length > 65536:
+            return self.send(413, b"v2 payload too large")
+        try:
+            observations = decode(data, now=time.time())
+        except PayloadError as error:
+            return self.send(error.status, str(error).encode())
+        for observation in observations:
+            office.apply(observation)
         self.send(204)
 
     def events(self):

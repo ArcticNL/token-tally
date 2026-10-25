@@ -289,7 +289,7 @@ class StateEventsTests(unittest.TestCase):
         config = self.sandbox.config / 'token-tally' / 'relay.json'
         config.parent.mkdir()
         for values, client, hook_fields in (
-            ({'client_id': 'bound-client', 'machine': 'fixture-pc'}, 'bound-client', {}),
+            ({'payload_version': 2, 'client_id': 'bound-client', 'machine': 'fixture-pc'}, 'bound-client', {}),
             ({'machine': 'fixture-pc'}, 'legacy-machine:fixture-pc', {'machine': 'fixture-pc'}),
         ):
             with self.subTest(client=client):

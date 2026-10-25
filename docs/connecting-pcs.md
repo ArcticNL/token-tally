@@ -114,3 +114,11 @@ first) and removes `hook_relay.py` and `relay.json` from `~/.claude/token-tally`
 Other files in that directory remain. The directory is removed only when empty.
 Manually wrapped or moved relay commands are left untouched; remove those yourself
 if you no longer want them.
+
+### Payload v2 migration
+
+Upgrade the office first, then download and rerun its installer. The installer
+checks `/capabilities` before enabling v2, preserves the computer’s stable client
+ID, and keeps an existing v2 relay when server capabilities are unavailable.
+V2 sends metadata without prompt/command/result previews. Existing signed v1
+relays remain compatible; details are in [hook protocol](hook-protocol.md).

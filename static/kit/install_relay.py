@@ -14,9 +14,11 @@ checks the key works, and adds background hooks to ~/.claude/settings.json
 or with --uninstall to remove it again.
 """
 import argparse
+import ast
 import getpass
 import hashlib
 import hmac
+import http.client
 import json
 import os
 import re
@@ -27,6 +29,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 
 # Filled in by the office when you download this file (see server.py). Left as-is, --server is required.
@@ -71,6 +74,64 @@ def check_key(urls, key):
         except Exception:
             continue
     return "unreachable", None
+
+
+def read_capabilities(hook_url):
+    """Return a complete advertisement, or None for legacy/unavailable servers."""
+    url = hook_url.removesuffix("/hook") + "/capabilities"
+    try:
+        with OPENER.open(url, timeout=3) as response:
+            raw = response.read(8193)
+        if len(raw) > 8192:
+            return None
+        capabilities = json.loads(raw)
+    except urllib.error.HTTPError as error:
+        error.close()
+        return None
+    except (OSError, ValueError, http.client.HTTPException):
+        return None
+    if not isinstance(capabilities, dict):
+        return None
+    versions = capabilities.get("payload_versions")
+    if (not isinstance(versions, list)
+            or any(type(version) is not int or version < 1 for version in versions)):
+        return None
+    for field in ("providers", "signing_versions"):
+        values = capabilities.get(field)
+        if not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values):
+            return None
+    return capabilities
+
+
+def select_payload_version(current, capabilities):
+    """Upgrade only with evidence; absence of evidence never downgrades v2."""
+    if capabilities is None:
+        return current
+    compatible = ("claude" in capabilities["providers"] and "v1" in capabilities["signing_versions"])
+    supported = capabilities["payload_versions"] if compatible else []
+    if 2 in supported:
+        return 2
+    if current == 1 and 1 in supported:
+        return 1
+    sys.exit("The office does not advertise support for this relay protocol. Nothing changed.")
+
+
+def source_supports_payload_version(source, version):
+    """Inspect one literal compatibility marker without executing relay code."""
+    marker = "SUPPORTED_PAYLOAD_VERSIONS"
+    try:
+        tree = ast.parse(source)
+        assignments = [node for node in tree.body if isinstance(node, ast.Assign)
+                       and any(isinstance(target, ast.Name) and target.id == marker for target in node.targets)]
+        stores = [node for node in ast.walk(tree)
+                  if isinstance(node, ast.Name) and node.id == marker and isinstance(node.ctx, ast.Store)]
+        if len(assignments) != 1 or len(assignments[0].targets) != 1 or len(stores) != 1:
+            return False
+        versions = ast.literal_eval(assignments[0].value)
+        return (isinstance(versions, (tuple, list))
+                and all(type(value) is int and value > 0 for value in versions) and version in versions)
+    except (SyntaxError, ValueError, TypeError, RecursionError):
+        return False
 
 
 def is_ours(handler):
@@ -135,6 +196,14 @@ def load_config():
             or ("urls" in cfg and (not isinstance(cfg["urls"], list)
                                   or any(not isinstance(u, str) or not u for u in cfg["urls"])))):
         sys.exit(f"{path} has an unexpected shape; nothing changed.")
+    version = cfg.get("payload_version", 1)
+    if type(version) is not int or version not in (1, 2) or cfg.get("provider", "claude") != "claude":
+        sys.exit(f"{path} has an unsupported provider or payload version; nothing changed.")
+    if "client_id" in cfg:
+        client = cfg["client_id"]
+        if (not isinstance(client, str) or not client.strip() or len(client) > 256
+                or any(ord(char) < 32 or ord(char) == 127 for char in client)):
+            sys.exit(f"{path} has an invalid client identity; nothing changed.")
     return cfg
 
 
@@ -228,15 +297,6 @@ def install(args):
             extras = args.extra_url
         urls = [u.rstrip("/") + "/hook" for u in [server, *extras] if u]
 
-    print("Getting the relay from the office...")
-    local = Path(__file__).with_name("hook_relay.py")
-    try:
-        relay_src = fetch(server.rstrip("/") + "/kit/hook_relay.py")
-    except Exception:
-        if not local.exists():
-            sys.exit(f"Couldn't reach {server}. Is the office running, and can this PC reach it?")
-        relay_src = local.read_bytes()
-
     key = args.key if args.key is not None else cfg.get("key")
     if key is None:
         key = getpass.getpass("Office key (input is hidden): ").strip()
@@ -254,9 +314,29 @@ def install(args):
     else:
         print(f"  key accepted by {where.rsplit('/hook', 1)[0]}")
 
+    capabilities = read_capabilities(where) if status == "ok" else None
+    version = select_payload_version(cfg.get("payload_version", 1), capabilities)
     relay = RELAY_DIR / "hook_relay.py"
+    if capabilities is None and version == 2:
+        if not relay.is_file():
+            sys.exit("Cannot verify v2 support and no installed relay is available to preserve. Nothing changed.")
+        relay_src = relay.read_bytes()
+        print("  Capabilities unavailable; keeping the installed v2 relay and protocol.")
+    else:
+        print("Getting the relay from the office...")
+        local = Path(__file__).with_name("hook_relay.py")
+        try:
+            relay_src = fetch(server.rstrip("/") + "/kit/hook_relay.py")
+        except Exception:
+            if not local.exists():
+                sys.exit(f"Couldn't reach {server}. Is the office running, and can this PC reach it?")
+            relay_src = local.read_bytes()
+    if version == 2 and not source_supports_payload_version(relay_src, 2):
+        sys.exit("The selected relay source does not declare v2 support. Nothing changed.")
     name = args.name if args.name is not None else cfg.get("machine", socket.gethostname())
-    cfg.update(urls=urls, key=key, machine=name)
+    cfg.update(urls=urls, key=key, machine=name, provider="claude", payload_version=version)
+    if "client_id" not in cfg:
+        cfg["client_id"] = str(uuid.uuid4())
 
     python = Path(sys.executable).as_posix()
     command = f'"{python}" "{relay.as_posix()}"'

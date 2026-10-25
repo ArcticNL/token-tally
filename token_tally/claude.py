@@ -65,7 +65,7 @@ def local_client_id(config_path) -> str:
         return "local-transcript"
     if not isinstance(config, dict):
         return "local-transcript"
-    client = _identifier(config.get("client_id"))
+    client = _identifier(config.get("client_id")) if config.get("payload_version", 1) == 2 else None
     if client:
         return client
     legacy = _legacy_client(config.get("machine"))

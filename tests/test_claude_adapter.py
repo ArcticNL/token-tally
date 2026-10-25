@@ -264,7 +264,7 @@ class LocalBindingTests(unittest.TestCase):
         self.config.write_text(json.dumps(data), encoding="utf-8")
 
     def test_stable_client_wins_without_modifying_configuration(self):
-        self.write({"client_id": "stable-client", "machine": "fixture-pc", "key": "SYNTHETIC_SECRET"})
+        self.write({"payload_version": 2, "client_id": "stable-client", "machine": "fixture-pc", "key": "SYNTHETIC_SECRET"})
         before = self.config.read_bytes()
         self.assertEqual(local_client_id(self.config), "stable-client")
         self.assertEqual(self.config.read_bytes(), before)
@@ -275,6 +275,14 @@ class LocalBindingTests(unittest.TestCase):
             event, = hook_events({"session_id": "session", "hook_event_name": "Stop", "machine": machine})
             self.assertEqual(local_client_id(self.config), event.actor.client_id)
             self.assertEqual(local_client_id(self.config), "legacy-machine:" + machine)
+
+    def test_saved_client_id_does_not_split_a_v1_installation(self):
+        for version in (1, None):
+            cfg = {"client_id": "reserved-for-v2", "machine": "fixture-pc"}
+            if version is not None:
+                cfg["payload_version"] = version
+            self.write(cfg)
+            self.assertEqual(local_client_id(self.config), "legacy-machine:fixture-pc")
 
     def test_invalid_client_falls_back_only_to_valid_own_machine(self):
         for value in (None, "", "\n", {}, [], 42, "x" * 513):

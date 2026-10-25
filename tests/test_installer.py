@@ -7,11 +7,14 @@ import contextlib
 import copy
 import importlib.util
 import io
+import http.client
 import json
 import os
 import sys
 import tempfile
 import unittest
+import urllib.error
+import uuid
 from pathlib import Path
 from unittest import mock
 
@@ -22,11 +25,15 @@ SPEC = importlib.util.spec_from_file_location(
 )
 installer = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(installer)
+READ_CAPABILITIES = installer.read_capabilities
 
 KEY = "synthetic-installer-test-key"
 SERVER = "http://office.invalid:8377"
 EXTRA = "http://extra-office.invalid:8377"
-RELAY_SOURCE = b"# synthetic relay fixture\n"
+RELAY_SOURCE = b"# synthetic relay fixture\nSUPPORTED_PAYLOAD_VERSIONS = (1, 2)\n"
+INSTALLED_V2_RELAY = (REPO / "hook_relay.py").read_bytes()
+CLIENT_ID = "12345678-1234-4234-8234-123456789abc"
+CAPABILITIES = {"payload_versions": [1, 2], "providers": ["claude"], "signing_versions": ["v1"]}
 
 
 class InstallerTests(unittest.TestCase):
@@ -51,13 +58,19 @@ class InstallerTests(unittest.TestCase):
         self.check_key = self.stack.enter_context(mock.patch.object(
             installer, "check_key", side_effect=lambda urls, key: ("ok", urls[0])
         ))
+        self.capabilities = self.stack.enter_context(mock.patch.object(
+            installer, "read_capabilities", return_value=None,
+        ))
+        self.new_client = self.stack.enter_context(mock.patch.object(
+            installer.uuid, "uuid4", return_value=uuid.UUID(CLIENT_ID),
+        ))
         self.prompt = self.stack.enter_context(
             mock.patch.object(installer.getpass, "getpass", return_value=KEY)
         )
         self.stack.enter_context(mock.patch.object(
             installer.socket, "gethostname", return_value="fixture-computer"
         ))
-        self.stack.enter_context(mock.patch.object(
+        self.network = self.stack.enter_context(mock.patch.object(
             installer.OPENER, "open", side_effect=AssertionError("real network is forbidden")
         ))
 
@@ -179,7 +192,9 @@ class InstallerTests(unittest.TestCase):
         self.existing()
         expected = self.read_json(self.config)
         self.install()
-        self.assertEqual(self.read_json(self.config), expected)
+        self.assertEqual(self.read_json(self.config), {
+            **expected, "provider": "claude", "payload_version": 1, "client_id": CLIENT_ID,
+        })
         self.assertEqual(self.relay.read_bytes(), RELAY_SOURCE)
         self.fetch.assert_called_once_with(SERVER + "/kit/hook_relay.py")
         self.check_key.assert_called_once_with(expected["urls"], KEY)
@@ -192,6 +207,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.read_json(self.config), {
             "urls": ["http://replacement.invalid:9000/hook", "http://backup.invalid:9001/hook"],
             "key": "new-synthetic-key", "machine": "replacement-computer", "extension": {"keep": [1, 2]},
+            "provider": "claude", "payload_version": 1, "client_id": CLIENT_ID,
         })
         self.prompt.assert_not_called()
 
@@ -272,6 +288,225 @@ class InstallerTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.install(key="rejected-synthetic-key")
         self.assertEqual(self.snapshot(), before)
+        self.capabilities.assert_not_called()
+
+    def test_verified_capabilities_upgrade_to_v2_with_one_stable_client_id(self):
+        self.existing()
+        self.capabilities.return_value = CAPABILITIES
+        self.install()
+        cfg = self.read_json(self.config)
+        self.assertEqual(cfg["payload_version"], 2)
+        self.assertEqual(cfg["provider"], "claude")
+        self.assertEqual(cfg["client_id"], CLIENT_ID)
+        self.assertEqual(cfg["extension"], {"keep": [1, 2]})
+        before = self.snapshot()
+        self.install()
+        self.assertEqual(self.snapshot(), before)
+        self.new_client.assert_called_once_with()
+
+    def test_capabilities_use_the_address_that_accepted_the_key_before_writes(self):
+        self.existing()
+        before = self.snapshot()
+        self.check_key.side_effect = None
+        self.check_key.return_value = ("ok", EXTRA + "/hook")
+
+        def capabilities(url):
+            self.assertEqual(url, EXTRA + "/hook")
+            self.assertEqual(self.check_key.call_count, 1)
+            self.assertEqual(self.snapshot(), before)
+            return CAPABILITIES
+
+        self.capabilities.side_effect = capabilities
+        self.install()
+        self.capabilities.assert_called_once_with(EXTRA + "/hook")
+        self.assertEqual(self.read_json(self.config)["payload_version"], 2)
+
+    def test_saved_v2_is_not_downgraded_when_capabilities_are_unavailable(self):
+        config = {"urls": [SERVER + "/hook"], "key": KEY, "machine": "saved-computer",
+                  "client_id": "existing-stable-client", "provider": "claude", "payload_version": 2}
+        self.existing(config=config)
+        self.relay.write_bytes(INSTALLED_V2_RELAY)
+        self.install()
+        self.assertEqual(self.read_json(self.config), config)
+        self.assertEqual(self.relay.read_bytes(), INSTALLED_V2_RELAY)
+        self.fetch.assert_not_called()
+        self.new_client.assert_not_called()
+
+    def test_saved_v2_without_relay_and_unknown_capabilities_refuses_without_writes(self):
+        self.existing(config={"urls": [SERVER + "/hook"], "key": KEY,
+            "client_id": "existing-stable-client", "provider": "claude", "payload_version": 2})
+        self.relay.unlink()
+        before = self.snapshot()
+        with self.assertRaises(SystemExit):
+            self.install()
+        self.assertEqual(self.snapshot(), before)
+        self.fetch.assert_not_called()
+        self.new_client.assert_not_called()
+
+    def test_v2_rejects_unmarked_download_before_writes(self):
+        self.existing()
+        before = self.snapshot()
+        self.capabilities.return_value = CAPABILITIES
+        self.fetch.return_value = b"# legacy relay ignores payload_version\n"
+        with self.assertRaises(SystemExit):
+            self.install()
+        self.assertEqual(self.snapshot(), before)
+        self.new_client.assert_not_called()
+
+    def test_v1_still_accepts_an_unmarked_legacy_relay_source(self):
+        self.fetch.return_value = b"# legacy relay fixture\n"
+        self.install(key=KEY)
+        self.assertEqual(self.read_json(self.config)["payload_version"], 1)
+        self.assertEqual(self.relay.read_bytes(), self.fetch.return_value)
+
+    def test_v2_rejects_unmarked_adjacent_fallback_before_writes(self):
+        self.existing()
+        directory = self.root / "downloaded-installer"
+        directory.mkdir()
+        (directory / "hook_relay.py").write_bytes(b"# legacy local fallback\n")
+        before = self.snapshot()
+        self.capabilities.return_value = CAPABILITIES
+        self.fetch.side_effect = OSError("synthetic download failure")
+        with mock.patch.object(installer, "__file__", str(directory / "install_relay.py")):
+            with self.assertRaises(SystemExit):
+                self.install()
+        self.assertEqual(self.snapshot(), before)
+        self.new_client.assert_not_called()
+
+    def test_saved_v2_with_unmarked_installed_relay_refuses_without_writes(self):
+        self.existing(config={"urls": [SERVER + "/hook"], "key": KEY,
+            "client_id": "existing-stable-client", "provider": "claude", "payload_version": 2})
+        before = self.snapshot()
+        with self.assertRaises(SystemExit):
+            self.install()
+        self.assertEqual(self.snapshot(), before)
+        self.fetch.assert_not_called()
+
+    def test_v2_source_marker_is_literal_unique_and_never_executed(self):
+        self.assertTrue(installer.source_supports_payload_version(
+            b"SUPPORTED_PAYLOAD_VERSIONS = (1, 2)\nraise RuntimeError('must not run')\n", 2))
+        invalid = (
+            b"# no marker", b"SUPPORTED_PAYLOAD_VERSIONS = (1,)",
+            b"SUPPORTED_PAYLOAD_VERSIONS = [True, 2]", b"SUPPORTED_PAYLOAD_VERSIONS = '1, 2'",
+            b"SUPPORTED_PAYLOAD_VERSIONS = tuple([1, 2])",
+            b"SUPPORTED_PAYLOAD_VERSIONS = (1, 2)\nSUPPORTED_PAYLOAD_VERSIONS = (1,)",
+            b"SUPPORTED_PAYLOAD_VERSIONS = OTHER = (1, 2)",
+            b"if True:\n    SUPPORTED_PAYLOAD_VERSIONS = (1, 2)", b"not python syntax!",
+        )
+        for source in invalid:
+            with self.subTest(source=source):
+                self.assertFalse(installer.source_supports_payload_version(source, 2))
+
+    def test_saved_v2_rejects_explicitly_incompatible_capabilities_without_writes(self):
+        incompatible = (
+            {**CAPABILITIES, "payload_versions": [1]},
+            {**CAPABILITIES, "providers": ["codex"]},
+            {**CAPABILITIES, "signing_versions": ["v2"]},
+        )
+        for capabilities in incompatible:
+            with self.subTest(capabilities=capabilities):
+                self.existing(config={"urls": [SERVER + "/hook"], "key": KEY,
+                    "client_id": "existing-stable-client", "provider": "claude", "payload_version": 2})
+                before = self.snapshot()
+                self.capabilities.return_value = capabilities
+                with self.assertRaises(SystemExit):
+                    self.install()
+                self.assertEqual(self.snapshot(), before)
+        self.new_client.assert_not_called()
+
+    def test_legacy_install_stays_v1_when_only_v1_is_advertised(self):
+        self.capabilities.return_value = {**CAPABILITIES, "payload_versions": [1]}
+        self.install(key=KEY)
+        self.assertEqual(self.read_json(self.config)["payload_version"], 1)
+
+    def test_new_install_rejects_known_incompatible_provider_without_writes(self):
+        self.capabilities.return_value = {**CAPABILITIES, "providers": ["different-provider"]}
+        with self.assertRaises(SystemExit):
+            self.install(key=KEY)
+        self.assertEqual(self.snapshot(), {})
+
+    def test_unreachable_keycheck_skips_capabilities_and_preserves_saved_version(self):
+        self.check_key.side_effect = None
+        self.check_key.return_value = ("unreachable", None)
+        for version in (1, 2):
+            with self.subTest(version=version):
+                self.existing(config={"urls": [SERVER + "/hook"], "key": KEY,
+                    "client_id": "existing-stable-client", "payload_version": version})
+                self.relay.write_bytes(INSTALLED_V2_RELAY)
+                self.install()
+                cfg = self.read_json(self.config)
+                self.assertEqual(cfg["payload_version"], version)
+                self.assertEqual(cfg["client_id"], "existing-stable-client")
+                if version == 2:
+                    self.assertEqual(self.relay.read_bytes(), INSTALLED_V2_RELAY)
+        self.capabilities.assert_not_called()
+        self.new_client.assert_not_called()
+
+    def test_invalid_saved_protocol_fields_abort_before_network_or_writes(self):
+        invalid = (
+            {"client_id": None}, {"client_id": []}, {"client_id": ""}, {"client_id": " "},
+            {"client_id": "x" * 257}, {"client_id": "a\nb"},
+            {"payload_version": True}, {"payload_version": "2"}, {"payload_version": 3},
+            {"provider": None}, {"provider": "codex"},
+        )
+        for extra in invalid:
+            with self.subTest(field=next(iter(extra))):
+                self.existing(config={"urls": [SERVER + "/hook"], "key": KEY, **extra})
+                before = self.snapshot()
+                with self.assertRaises(SystemExit):
+                    self.install()
+                self.assertEqual(self.snapshot(), before)
+        self.fetch.assert_not_called()
+        self.check_key.assert_not_called()
+        self.capabilities.assert_not_called()
+        self.new_client.assert_not_called()
+
+    def test_capability_reader_accepts_complete_advertisement_at_matching_endpoint(self):
+        self.network.side_effect = None
+        self.network.return_value = io.BytesIO(json.dumps(CAPABILITIES).encode())
+        self.assertEqual(READ_CAPABILITIES(EXTRA + "/hook"), CAPABILITIES)
+        self.network.assert_called_once_with(EXTRA + "/capabilities", timeout=3)
+
+    def test_capability_reader_treats_invalid_advertisements_as_unknown(self):
+        invalid = (
+            b"not JSON", b"[]", b"{}", b"\xff", b" " * 8193,
+            json.dumps({**CAPABILITIES, "payload_versions": [True]}).encode(),
+            json.dumps({**CAPABILITIES, "payload_versions": ["2"]}).encode(),
+            json.dumps({**CAPABILITIES, "providers": "claude"}).encode(),
+            json.dumps({**CAPABILITIES, "signing_versions": [None]}).encode(),
+        )
+        self.network.side_effect = None
+        for raw in invalid:
+            with self.subTest(length=len(raw)):
+                self.network.return_value = io.BytesIO(raw)
+                self.assertIsNone(READ_CAPABILITIES(SERVER + "/hook"))
+
+    def test_old_or_unavailable_capability_endpoint_keeps_new_installs_v1(self):
+        self.capabilities.side_effect = READ_CAPABILITIES
+        errors = (
+            urllib.error.HTTPError(SERVER + "/capabilities", 404, "legacy office", {}, io.BytesIO()),
+            urllib.error.URLError("synthetic unavailable"), TimeoutError("synthetic timeout"),
+            http.client.IncompleteRead(b"partial fixture"),
+        )
+        for error in errors:
+            with self.subTest(error_type=type(error).__name__):
+                self.network.side_effect = error
+                self.install(key=KEY)
+                self.assertEqual(self.read_json(self.config)["payload_version"], 1)
+        self.new_client.assert_called_once_with()
+
+    def test_malformed_capability_endpoint_preserves_saved_v2(self):
+        self.existing(config={"urls": [SERVER + "/hook"], "key": KEY,
+            "client_id": "existing-stable-client", "provider": "claude", "payload_version": 2})
+        self.relay.write_bytes(INSTALLED_V2_RELAY)
+        self.capabilities.side_effect = READ_CAPABILITIES
+        self.network.side_effect = None
+        self.network.return_value = io.BytesIO(b"not JSON")
+        self.install()
+        self.assertEqual(self.read_json(self.config)["payload_version"], 2)
+        self.assertEqual(self.relay.read_bytes(), INSTALLED_V2_RELAY)
+        self.fetch.assert_not_called()
+        self.new_client.assert_not_called()
 
     def test_uninstall_preserves_foreign_handlers_metadata_and_files(self):
         foreign = {"type": "command", "command": "other-handler"}

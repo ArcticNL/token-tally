@@ -60,3 +60,11 @@ Data flows one way. The relay always exits 0 with no output and runs as an async
 ## Keeping your details out of git
 
 The repo holds no secrets and no personal details. Your server's addresses go in `office.env`, the key in `hook.key`, and each PC's settings in `~/.claude/token-tally/relay.json`. All three are ignored by git. If you fork the project, keep it that way: use placeholders like `<office-address>` in anything you commit.
+
+## Versioned relay privacy
+
+Payload v2 uses an explicit metadata allowlist before network delivery. Raw prompts,
+commands, patches, tool arguments/results and assistant text are excluded. HMAC
+signing remains v1. Upgrade the server before the relays; see
+[hook protocol and migration](hook-protocol.md). Existing v1 clients retain their
+older trimming contract until upgraded.

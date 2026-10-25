@@ -79,7 +79,7 @@ in state; consumers must render it independently rather than discard it.
 Each snapshot retains the existing flat presentation fields and adds `provider`,
 `client_id`, `session_id`, `agent_id`, `identity_quality` and an `observed` object:
 `status`, `task`, `tool`, `detail`, `since`, `source`, `confidence`, `turn_id`,
-`limited`. `observed` is never animation-held; `confidence: inferred` marks the
+`limited`, `correlation` (`native`, `partial`, `ambiguous`). `observed` is never animation-held; `confidence: inferred` marks the
 transcript timeout guess. Counts mean observed tool calls, not successes.
 
 Native call IDs deduplicate tool starts/results across sources. Terminal evidence
@@ -136,6 +136,7 @@ Three.js from `static/vendor/`; no build step is needed.
 | `/` and `/static…` | GET | the page, `office.js`, `vendor/`, `kit/install_relay.py` |
 | `/kit/hook_relay.py` | GET | the relay, served from the project root for the installer |
 | `/events` | GET | Server-Sent Events: the full agent list whenever it changes, plus a ping every 15 s |
+| `/capabilities` | GET | supported payload versions, providers and signing versions; see [hook protocol](hook-protocol.md) |
 | `/state` | GET | the same snapshot once, as JSON |
 | `/names` | GET | the cast from `names.txt`: `{"names": [...], "manager": "...", "says": [...]}`; empty values mean the built-in cast |
 | `/hook` | POST | one hook event, `Content-Type: application/json` only, never from a browser (`Origin` / `Sec-Fetch-Site` are refused). With a key, it must be signed: `X-Token-Tally-Time`, `X-Token-Tally-Nonce` and `X-Token-Tally-Signature` = HMAC-SHA256(key, `v1.<time>.<nonce>.` + body). Events more than 5 minutes off, or with a nonce already used, are refused |

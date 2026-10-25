@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Versioned, metadata-only relays.** The office advertises `/capabilities` and
+  accepts v2 envelopes alongside signed Claude v1 events. V2 uses persistent
+  client IDs and invocation IDs, sends no prompt/command/result text, and bounds
+  delivery to 500 ms after process startup. HMAC signing stays v1. Upgrade the
+  server before rerunning the installer; an unverified server cannot silently
+  replace an existing v2 relay with legacy code. See [migration](docs/hook-protocol.md).
+
 - **Scoped, deduplicated observations.** Hook and transcript observations now use
   one reducer. Native tool calls count once, delayed starts cannot reopen completed
   calls, and unrelated completions do not clear waits. Provider/client/session IDs
