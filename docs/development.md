@@ -154,6 +154,32 @@ a.info = { ...a.info, status: 'idle', last: Date.now() / 1000 - 300 }; a.stayUnt
 tokenTally.advance(15);
 ```
 
+## Isolated browser regression tests
+
+Use Node.js 22 and the pinned Playwright development dependency:
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:browser
+```
+
+On Linux CI, install the browser's system dependencies with `npx playwright install --with-deps chromium`. The browser workflow runs separately from the Python checks; both are required for frontend changes. No JavaScript build or Node runtime is needed in production.
+
+These are UI tests against a **synthetic backend**, not Python backend integration tests. Each worker starts a Node standard-library server on an ephemeral loopback port, serves only `static/`, and supplies generic `/names`, `/state` and real `/events` SSE responses. The fixture never reads transcripts, user names, keys or configuration, and never invokes agents. All browser traffic is restricted to the fixture; the optional Google Fonts stylesheet is replaced with empty CSS. Every test gets a fresh browser context and reset fixture; teardown closes sockets and the server even after a failure.
+
+The harness pauses Playwright's clock and installs seeded `Math.random` before the application starts. All fixture times derive from that clock. Advance normal application time with `page.clock.runFor()`; `tokenTally.advance()` does not control Date/timers/random and must not be used alongside the clock. Native EventSource reconnect uses browser networking time, so its test waits for connection events and holds/releases the reconnect instead of sleeping or assuming a particular delay.
+
+Tests cover live/demo, normal/lite, full snapshots, parent/subagent ordering, more than twelve staff, selection, a tablet viewport and reconnect. DOM and user interactions are primary; existing `tokenTally.deskSlots` is a read-only oracle for desk ownership. Two executed `test.fail()` regressions track the known replacement-desk and roster-focus bugs for PR13. An unexpected pass fails the suite, requiring removal of the annotation when the bug is fixed.
+
+Repeat the suite to check isolation and reproducibility:
+
+```bash
+npm run test:browser -- --repeat-each=3 --workers=1
+```
+
+Failure traces, screenshots and the HTML report live under ignored `output/playwright/`. Open a report with `npx playwright show-report output/playwright/report`. CI uploads failure diagnostics for seven days. Chromium is the initial gate; a tablet viewport does not certify other browser engines or physical tablets.
+
 ## Debugging in the browser
 
 `window.tokenTally` is exposed in the dev console:

@@ -15,6 +15,10 @@ These files are unmodified copies from the `three@0.169.0` npm package.
 - **VT323 font**, by Peter Hull, used for the clock and sticky notes. Licence: SIL Open Font License 1.1. The page loads it from Google Fonts; it isn't redistributed here. Without internet, the page falls back to a monospace system font.
 - **System fonts** (Tahoma, Verdana, Comic Sans MS and others) are only named in CSS and canvas drawing. The browser uses its own copies if installed; none are included here.
 
+## Development dependencies
+
+- **Playwright Test 1.64.1**, by Microsoft, is an Apache-2.0-licensed browser test runner. It is pinned in `package-lock.json` and installed only for development/CI; it is not shipped with the office. Source and licence: [microsoft/playwright](https://github.com/microsoft/playwright). The Chromium browser downloaded separately by Playwright retains its own third-party notices.
+
 ## Everything else
 
 The 3D office, its people, textures, signs, posters and the user interface are drawn in code from simple shapes. They're original to this project and covered by its [LICENSE](LICENSE). No game assets, models, images or sounds from other works are included.
