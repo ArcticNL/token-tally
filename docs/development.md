@@ -22,19 +22,52 @@ parallel writing tasks. Automated tests must use synthetic data and temporary
 configuration/project directories. The manual commands below deliberately use
 your own installation and are not an isolated test harness.
 
-Before a deployment, compile the Python sources (a parse-only check misses errors
-such as a `global` declaration after use) and pass all three existing test suites:
+## Automated Python checks
+
+Run the standard-library check entrypoint with Python 3.9 or newer:
 
 ```text
-python -m py_compile server.py hook_relay.py docker/entrypoint.py static/kit/install_relay.py
-python tests/test_signing.py
-python tests/test_office_state.py
-python tests/test_container_start.py
+python tests/run_checks.py
 ```
 
-The current integration scripts still need fixture isolation before automated
-use on a machine with personal sessions. See their source before running them;
-the manual server command also reads local transcripts.
+It compiles the Python sources, then runs signing (20 checks), office state (13),
+container entrypoint (12) and harness regressions in separate processes. Compilation
+uses `py_compile`, so errors such as a `global` declaration after use are caught.
+Use `python tests/run_checks.py --syntax` for compilation alone. Each existing
+`python tests/test_*.py` script can also be run individually. Absolute script paths
+work from other directories, including paths containing spaces. On systems where
+Python is named `python3`, use that name instead.
+
+Exit codes: **0** means all selected checks passed; **1** means compilation, a test
+or a fixture operation failed; **2** means invalid arguments or a missing required
+input. Suites retain their own check counts; the runner reports suite exit codes
+and continues after a failed suite. It does not infer success by parsing log text.
+
+`tests/support.py` provides `Sandbox`, `Checks`, `request` and `capture_server`:
+
+- Use `with Sandbox() as sandbox, sandbox.activate():` before importing application
+  modules. Children inherit the sandbox environment automatically. Each scope owns
+  temporary Claude configuration/projects, names, data, working directory and logs.
+  No real transcripts, user names, keys or settings are needed.
+- Use `sandbox.start_server(keyfile=None)` or `sandbox.start_entrypoint(...)` for
+  process tests. Both return a managed process with `.url`, `.process` and `.log()`.
+  All listeners bind loopback port 0. Readiness reads the server's existing startup
+  URL and checks `/state` and child status, with a monotonic deadline.
+- Startup, HTTP calls and shutdown have time limits. Cleanup is registered before
+  readiness and terminates, waits, kills if necessary, closes handles and removes
+  temporary files. Logs are reported on startup failures. A hard external kill of
+  the suite is outside this cleanup guarantee; do not add a timeout that kills only
+  the suite PID and leaves its server children behind.
+- The fixture removes inherited `TOKEN_TALLY_*` and `OFFICE_*` values. Relay CLI
+  tests must additionally copy only the standalone relay into a temporary directory
+  with synthetic `relay.json`: `load_config()` reads a file beside the relay before
+  environment overrides. Never copy the whole working checkout into a fixture.
+- Register new Python suites in `tests/run_checks.py` and extend its source list
+  when adding production modules. Keep Docker and browser dependencies in separate
+  checks; `test_container_start.py` exercises the entrypoint without Docker.
+
+Compilation output and test imports leave no bytecode in the checkout. All fixture
+data is synthetic. The manual server command below still reads your own sessions.
 
 ## Run it locally with your own sessions
 
@@ -64,7 +97,7 @@ curl -s http://127.0.0.1:8390/state
 
 Build test events with `json.dumps` rather than typing JSON in the shell. Windows paths with backslashes are easy to break by hand. A plain `curl` post to a keyed server is refused, because events must be signed. Send test events through `hook_relay.py`, which signs them.
 
-To check the security of `/hook` after a change, run the end-to-end test. It starts two throwaway servers on ports 8393 and 8394 and checks signed, replayed, altered, expired and cross-site posts, plus that the key never leaves the relay:
+To check the security of `/hook` after a change, run the isolated end-to-end test. It starts two throwaway servers on dynamically assigned loopback ports and checks signed, replayed, altered, expired and cross-site posts, plus that the key never leaves the relay:
 
 ```bash
 python tests/test_signing.py

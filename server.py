@@ -647,7 +647,7 @@ def main():
     threading.Thread(target=run_loop, daemon=True).start()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.daemon_threads = True
-    url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{args.port}/"
+    url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{server.server_port}/"
     print(f"Token & Tally is open for business at {url}")
     print(f"Watching {PROJECTS}; hook key {'required' if HOOK_KEY else 'not set'}; answering to {sorted(ALLOWED_HOSTS)}")
     if args.open:
