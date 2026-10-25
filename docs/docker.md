@@ -1,5 +1,30 @@
 # Running the office in Docker
 
+## Container verification
+
+The entrypoint test (`python tests/test_container_start.py`) does not run Docker.
+The explicit integration test below builds and runs the actual image with the
+production Compose security settings. It needs Docker Engine and Compose 2.24.4+
+(the isolation override replaces the production port). It fails when Docker is
+unavailable; that is not a successful container check.
+
+```bash
+docker build --platform linux/amd64 --tag token-tally:smoke .
+python tests/test_docker_smoke.py --image token-tally:smoke --platform linux/amd64
+```
+
+Use `linux/arm64` on an ARM64 host. CI runs both architectures natively, without
+registry credentials or a deployment connection. Tests use unique containers and
+volumes, synthetic keys/names and ephemeral loopback ports. The bind-mount case
+requires a non-root host user. They check signing/replay, packaged assets, runtime
+confinement and byte-identical data after container replacement; they never use
+your local `.env` or data. Only their own resources are removed.
+
+ARM64 CI is functional evidence, not a Pi 3 performance measurement. Before a
+release is adopted on a Pi 3, an operator must test the exact release image on its
+64-bit OS and check startup time and memory usage. Do not make a production Pi a
+runner for pull requests.
+
 The container is the simplest way to run the office on an always-on machine: a home server, a NAS or a Raspberry Pi. It replaces the systemd setup in [pi-server.md](pi-server.md). PCs still need the relay ([connecting-pcs.md](connecting-pcs.md)), because it has to run inside each PC's Claude Code hooks.
 
 You need Docker with the Compose plugin ([install Docker Engine](https://docs.docker.com/engine/install/)). A Raspberry Pi needs a 64-bit OS. On Debian or Raspberry Pi OS, the distribution's own packages are enough: `sudo apt install docker.io docker-compose`.
