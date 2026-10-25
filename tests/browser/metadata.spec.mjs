@@ -30,6 +30,44 @@ function observedAgent({
 const field = (page, name) => page.locator(`#file-body dd[data-field="${name}"]`);
 const fieldLabel = (page, name) => field(page, name).locator('xpath=preceding-sibling::dt[1]');
 
+test('badge numbers distinguish opaque identities and survive cast, state and page refreshes', async ({ page, office }) => {
+  const staff = [
+    observedAgent(),
+    observedAgent({ clientId: 'client-b' }),
+    observedAgent({ sessionId: 'another-native-session' }),
+    observedAgent({ agentId: 'child-a' }),
+    observedAgent({ agentId: 'child-b' }),
+    observedAgent({ unattributed: true }),
+  ];
+  // These identities share the entire old visible prefix.
+  expect(new Set(staff.map((person) => person.id.slice(0, 13))).size).toBe(1);
+  office.server.publish(snapshot(staff));
+  await office.open();
+  const badges = new Map();
+  for (const person of staff) {
+    await row(page, person.id).click();
+    const badge = await field(page, 'badge').innerText();
+    expect(badge).not.toContain(person.id);
+    expect(badge).not.toContain(person.client_id);
+    expect(badge).not.toContain(person.session_id);
+    badges.set(person.id, badge);
+  }
+  expect(new Set(badges.values()).size).toBe(staff.length);
+
+  office.server.setCast({ names: ['New sample name'], manager: 'Manager' });
+  await page.evaluate(() => window.tokenTally.loadNames());
+  await office.publish(staff.map((person) => ({ ...person, tools: 10, status: 'idle' })));
+  for (const person of staff) {
+    await row(page, person.id).click();
+    await expect(field(page, 'badge')).toHaveText(badges.get(person.id));
+  }
+  await page.reload();
+  for (const person of staff) {
+    await row(page, person.id).click();
+    await expect(field(page, 'badge')).toHaveText(badges.get(person.id));
+  }
+});
+
 test('later parent metadata updates grouping without replacing the selected worker @pr15', async ({ page, office }) => {
   const parent = observedAgent(), child = observedAgent({ agentId: 'later-child', temp: false });
   office.server.publish(snapshot([child, parent]));

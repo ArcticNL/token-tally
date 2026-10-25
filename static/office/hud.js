@@ -1,4 +1,4 @@
-import { esc } from './utils.js';
+import { esc, hash } from './utils.js';
 import { intent } from './state.js';
 import { age, formatAge, metadata, timestamp } from './metadata.js';
 
@@ -119,7 +119,7 @@ export function createHud({
         ${field('For', 'duration', formatAge(age(nowSec(), meta.since)))}
         ${field(meta.seenLabel, 'last-seen', meta.seenText, meta.seenAt === null ? '' : ` data-timestamp="${meta.seenAt}"`)}
         ${field('Tool calls', 'tools', typeof a.tools === 'number' && Number.isFinite(a.tools) ? a.tools : '—')}
-        <dt>Badge no.</dt><dd><code>${esc(a.id.slice(0, 13))}</code></dd>
+        <dt>Badge no.</dt><dd data-field="badge"><code>${hash(a.id).toString(16).padStart(8, '0').toUpperCase()}</code></dd>
       </dl>
       <div class="log sunken">${(a.log || []).slice().reverse().map((l) => `<div>${fmtTime(l.t)}  ${esc(l.text)}</div>`).join('') || '<div>No entries yet.</div>'}</div>`;
   }
