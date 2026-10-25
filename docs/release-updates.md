@@ -83,14 +83,19 @@ python3 "$BARE/office-host/release_update.py" --config "$BARE/office-policy.json
 
 Bootstrap checks the immutable asset and source tag, both platform manifest
 digests, selected platform, image labels/config ID, container health, `/version`,
-security settings, port, environment and exact data mount. It does **not** start
-or replace a container. A legacy/dev image cannot become a rollback baseline.
+security settings, port, environment, entrypoint, command, working directory and
+exact data mount. It does **not** start or replace a container. A legacy/dev image
+cannot become a rollback baseline.
 Privileged containers, added capabilities and a read-only `/data` mount are
 rejected, even when the image, health check and version otherwise match.
 The environment must match the image defaults plus the policy's allow-host and
 extra-URL settings. Extra runtime overrides, including `OFFICE_DATA`, `OFFICE_APP`
 and `PYTHONPATH`, are refused rather than silently discarded during an update or
-rollback. Images must retain the schema1 `/app`, `/data`, `0.0.0.0:8377` defaults.
+rollback. The entrypoint, command and working directory must also match the
+immutable image defaults. Overrides that select alternate key or names paths via
+CLI arguments are rejected before bootstrap records a baseline or an update
+replaces the running container. Images must retain the schema1 `/app`, `/data`,
+`0.0.0.0:8377` defaults.
 For an existing installation with overrides, pause updates and manually migrate
 the key and names into the approved `/data` location before rebootstrap. Never
 remove the override and allow a replacement container to generate a different key.
@@ -160,7 +165,9 @@ and the original Compose file, and resolve pending recovery before upgrading it.
 entrypoints, persistent retry/quarantine, crash recovery, timeout child cleanup,
 bootstrap and configuration guards. `tests/test_release_update_docker.py --image
 <local-image>` builds synthetic healthy/unhealthy images and tests actual Docker
-activation, local rollback, exact old identity and byte-identical key/names.
+activation, local rollback, exact old identity and byte-identical key/names. It
+also verifies that bootstrap rejects an otherwise healthy container with an
+alternate key/names entrypoint, keeping that container and all data unchanged.
 Registry metadata/transfer are fixtures in that integration test; it never pushes
 images or publishes a GitHub release. The native amd64 and arm64 CI jobs run it.
 A real published-release pull and Raspberry Pi/systemd timer exercise remain

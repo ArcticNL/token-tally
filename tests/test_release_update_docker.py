@@ -10,6 +10,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,9 +39,9 @@ def run(args, **kwargs):
     return result.stdout.strip()
 
 
-def hashes(updater, snapshot):
+def hashes(updater, snapshot, files=("hook.key", "names.txt")):
     cid = updater.dc(snapshot, "ps", "-q", "office")
-    code = "import hashlib,json; from pathlib import Path; print(json.dumps([hashlib.sha256(Path('/data/'+n).read_bytes()).hexdigest() for n in ('hook.key','names.txt')]))"
+    code = "import hashlib,json; from pathlib import Path; print(json.dumps([hashlib.sha256(Path('/data/'+n).read_bytes()).hexdigest() for n in " + repr(files) + "]))"
     return updater.docker("exec", cid, "python", "-c", code)
 
 
@@ -69,6 +70,49 @@ def check_environment_guard(updater, snapshot, descriptor):
     updater.verify(snapshot)
     assert hashes(updater, snapshot) == before
     print("PASS real Docker bootstrap refuses unrecorded OFFICE_DATA without changing runtime or data")
+
+
+def check_launch_guard(updater, snapshot, descriptor):
+    cid = updater.dc(snapshot, "ps", "-q", "office")
+    updater.docker("exec", cid, "python", "-c",
+                   "from pathlib import Path; p=Path('/data/alternate.key'); p.write_text('fixture-alternate-key\\n'); p.chmod(0o600); "
+                   "Path('/data/alternate-names.txt').write_text('Manager: Alternate Fixture Manager\\nAlternate Fixture Worker\\n')")
+    files = ("hook.key", "names.txt", "alternate.key", "alternate-names.txt")
+    before = hashes(updater, snapshot, files)
+    before_state = copy.deepcopy(updater.state)
+    assert not updater.state_path.exists(), "fixture must start before bootstrap"
+    modified = copy.deepcopy(snapshot)
+    modified["launch"]["services"]["office"]["entrypoint"] = [
+        "python", "/app/server.py", "--host", "0.0.0.0", "--port", "8377",
+        "--hook-key-file", "/data/alternate.key", "--names-file", "/data/alternate-names.txt"]
+    updater.dc(modified, "up", "-d", "--no-build", "--pull", "never", "office")
+    cid = updater.dc(modified, "ps", "-q", "office")
+    # The override must actually serve the expected release before testing the guard.
+    deadline = time.monotonic() + updater.config["deadline"]
+    while time.monotonic() < deadline:
+        runtime = json.loads(updater.docker("inspect", cid))[0]
+        if runtime["State"].get("Health", {}).get("Status") == "healthy":
+            break
+        time.sleep(0.2)
+    else:
+        raise AssertionError("entrypoint fixture did not become healthy")
+    code = "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8377/version',timeout=3).read().decode())"
+    assert json.loads(updater.docker("exec", cid, "python", "-c", code)) == {
+        "schema": 1, "version": descriptor["version"], "revision": descriptor["source_sha"]}
+    with patch.object(module, "fetch_release", return_value=descriptor):
+        try:
+            updater.bootstrap(descriptor["version"])
+        except module.DeployError as error:
+            assert "launch mismatch" in str(error), "unexpected bootstrap rejection"
+        else:
+            raise AssertionError("bootstrap accepted an unrecorded entrypoint override")
+    assert updater.state == before_state and not updater.state_path.exists()
+    assert updater.dc(modified, "ps", "-q", "office") == cid, "rejected bootstrap replaced the container"
+    assert hashes(updater, modified, files) == before, "rejected bootstrap changed key/names"
+    updater.dc(snapshot, "up", "-d", "--no-build", "--pull", "never", "office")
+    updater.verify(snapshot)
+    assert hashes(updater, snapshot, files) == before
+    print("PASS real Docker bootstrap refuses alternate key/names entrypoint without mutation")
 
 
 def check_security_guard(updater, snapshot, descriptor):
@@ -148,6 +192,7 @@ def exercise(base):
             cid = updater.dc(old, "ps", "-q", "office")
             updater.docker("exec", cid, "python", "-c", "from pathlib import Path; Path('/data/names.txt').write_text('Manager: Fixture Manager\\nFixture Worker\\n')")
             check_environment_guard(updater, old, data[0])
+            check_launch_guard(updater, old, data[0])
             check_security_guard(updater, old, data[0])
             before = hashes(updater, old)
             with patch.object(module, "fetch_release", return_value=data[0]):

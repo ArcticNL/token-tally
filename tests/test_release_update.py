@@ -381,12 +381,15 @@ class RuntimeVerificationTests(unittest.TestCase):
         self.snapshot = {"release": release(), "image_id": image_id,
                          "launch": self.updater.launch(image_id), "project": config["project"],
                          "compose_hash": self.updater.compose_hash}
-        self.image = {"Config": {"Env": ["PATH=/usr/local/bin:/usr/bin", "PYTHONUNBUFFERED=1"]}}
+        self.image = {"Config": {"Env": ["PATH=/usr/local/bin:/usr/bin", "PYTHONUNBUFFERED=1"],
+                                 "Entrypoint": ["python", "/usr/local/bin/office-entrypoint"],
+                                 "Cmd": None, "WorkingDir": "/app"}}
         service = self.snapshot["launch"]["services"]["office"]
         port = service["ports"][0]
         self.container = {
             "Image": image_id, "State": {"Running": True, "Health": {"Status": "healthy"}},
-            "Config": {"User": service["user"], "Env": self.image["Config"]["Env"] +
+            "Config": {"Entrypoint": list(self.image["Config"]["Entrypoint"]), "Cmd": None, "WorkingDir": "/app",
+                       "User": service["user"], "Env": self.image["Config"]["Env"] +
                        [key + "=" + value for key, value in service["environment"].items()]},
             "Mounts": [{"Destination": "/data", "Type": "volume", "Name": config["data"]["source"], "RW": True},
                        {"Destination": "/tmp", "Type": "tmpfs"}],
@@ -409,6 +412,65 @@ class RuntimeVerificationTests(unittest.TestCase):
         with patch.object(self.updater, "docker", side_effect=self.docker), \
              patch.object(self.updater, "dc", return_value="fixture"):
             self.updater.verify(self.snapshot)
+
+    def test_equivalent_docker_empty_launch_defaults_are_accepted(self):
+        for field in ("Entrypoint", "Cmd"):
+            other_field = "Cmd" if field == "Entrypoint" else "Entrypoint"
+            # An empty entrypoint is valid when the image command supplies the executable.
+            self.image["Config"][other_field] = ["python", "/app/server.py"]
+            self.container["Config"][other_field] = ["python", "/app/server.py"]
+            for image_value, container_value in ((None, []), ([], None)):
+                with self.subTest(field=field, image=image_value, container=container_value):
+                    self.image["Config"][field] = image_value
+                    self.container["Config"][field] = container_value
+                    with patch.object(self.updater, "docker", side_effect=self.docker), \
+                         patch.object(self.updater, "dc", return_value="fixture"):
+                        self.updater.verify(self.snapshot)
+        for image_value, container_value in (("", "/"), ("/", "")):
+            with self.subTest(image_workdir=image_value, container_workdir=container_value):
+                self.image["Config"]["WorkingDir"] = image_value
+                self.container["Config"]["WorkingDir"] = container_value
+                with patch.object(self.updater, "docker", side_effect=self.docker), \
+                     patch.object(self.updater, "dc", return_value="fixture"):
+                    self.updater.verify(self.snapshot)
+
+    def test_bootstrap_and_update_reject_launch_drift_before_mutation(self):
+        alternate = ["python", "/app/server.py", "--host", "0.0.0.0", "--port", "8377",
+                     "--hook-key-file", "/data/alternate.key", "--names-file", "/data/alternate-names.txt"]
+        cases = (("Entrypoint", alternate), ("Entrypoint", None),
+                 ("Cmd", alternate[2:]), ("WorkingDir", "/data"))
+        original = copy.deepcopy(self.container["Config"])
+        original_state = copy.deepcopy(self.updater.state)
+        for field, value in cases:
+            for operation in ("bootstrap", "update"):
+                with self.subTest(field=field, operation=operation):
+                    self.container["Config"] = copy.deepcopy(original)
+                    self.container["Config"][field] = value
+                    self.updater.state = copy.deepcopy(original_state)
+                    self.updater.state["current"] = self.snapshot if operation == "update" else None
+                    self.updater.save()
+                    before_state = copy.deepcopy(self.updater.state)
+                    before_bytes = self.updater.state_path.read_bytes()
+                    candidate = copy.deepcopy(self.snapshot)
+                    if operation == "update":
+                        candidate["release"] = release("v1.0.1", "b")
+                    with patch.object(self.updater, "docker", side_effect=self.docker) as docker, \
+                         patch.object(self.updater, "dc", return_value="fixture") as compose, \
+                         patch.object(module, "fetch_release", return_value=candidate["release"]), \
+                         patch.object(self.updater, "prepare", return_value=candidate), \
+                         patch.object(self.updater, "retain") as retain:
+                        with self.assertRaisesRegex(DeployError, "launch mismatch"):
+                            if operation == "bootstrap":
+                                self.updater.bootstrap("v1.0.0")
+                            else:
+                                self.updater.update()
+                        retain.assert_not_called()
+                    self.assertEqual(self.updater.state, before_state)
+                    self.assertEqual(self.updater.state_path.read_bytes(), before_bytes)
+                    self.assertEqual(self.container["Config"][field], value)
+                    self.assertTrue(all(call.args[1] == "ps" for call in compose.call_args_list))
+                    self.assertTrue(all(call.args[0] == "inspect" or call.args[:2] == ("image", "inspect")
+                                        for call in docker.call_args_list))
 
     def test_bootstrap_and_update_reject_environment_drift_before_mutation(self):
         for extra in ("OFFICE_DATA=/data/subdir", "OFFICE_APP=/data", "PYTHONPATH=/data"):

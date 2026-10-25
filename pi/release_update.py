@@ -261,6 +261,7 @@ class Updater:
 
     def verify(self, snapshot):
         image = json.loads(self.docker("image", "inspect", snapshot["image_id"], timeout=10))[0]
+        image_config = image.get("Config", {})
         expected_environment = image_environment(image)
         expected_environment.update(snapshot["launch"]["services"]["office"]["environment"])
         cid = self.dc(snapshot, "ps", "-q", "office")
@@ -283,8 +284,14 @@ class Updater:
             if host.get("Privileged") is not False or host.get("CapAdd") or not host.get("ReadonlyRootfs") or host.get("Init") is not True or "ALL" not in host.get("CapDrop", []) or not any(item in ("no-new-privileges", "no-new-privileges:true") for item in host.get("SecurityOpt", [])):
                 raise DeployError("release container security mismatch")
             service = snapshot["launch"]["services"]["office"]
-            if container["Config"].get("User") != service["user"]:
+            runtime = container["Config"]
+            if runtime.get("User") != service["user"]:
                 raise DeployError("release container user mismatch")
+            # Docker may report absent command vectors as null or []; an empty
+            # working directory means /. Managed launches inherit these fields.
+            if any((runtime.get(field) or []) != (image_config.get(field) or [])
+                   for field in ("Entrypoint", "Cmd")) or (runtime.get("WorkingDir") or "/") != (image_config.get("WorkingDir") or "/"):
+                raise DeployError("release container launch mismatch")
             port = service["ports"][0]
             if host.get("PortBindings") != {"8377/tcp": [{"HostIp": port["host_ip"], "HostPort": port["published"]}]}:
                 raise DeployError("release container port mismatch")
