@@ -25,6 +25,7 @@ from socketserver import TCPServer
 from urllib.parse import urlparse
 
 from token_tally.office import Agent, Office, PROJECTS, SCAN_EVERY
+from token_tally.build_info import current_build
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -156,6 +157,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.events()
         if path == "/state":
             return self.send(200, office.payload().encode(), "application/json")
+        if path == "/version":
+            return self.send(200, json.dumps(current_build()).encode(), "application/json")
         if path == "/names":
             return self.send(200, json.dumps(read_names()).encode(), "application/json")
         if path == "/kit/hook_relay.py":  # the installer fetches the one relay that lives in the project root

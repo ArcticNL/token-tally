@@ -19,6 +19,11 @@
 
 - **Desk and roster correctness.** Replacement snapshots release desks before arrivals; existing overflow staff take the next available desk. Roster and personnel status update directly from received records. Keyboard focus and selection survive roster refreshes, and departing staff close their personnel file immediately.
 
+- **Manual tested releases:** native amd64/arm64 images are tested by digest before
+  an immutable GitHub release is published. `/version` reports build identity.
+  See [release administration](docs/releases.md) for required checks and the
+  read-only immutability-policy credential; publication is not enabled by default.
+
 - **Verified legacy deployments:** both push and pull deploy one exact commit under
   a shared lock, return failure on startup/health errors and record `refs/office/live`
   only after a healthy start. Reinstall the `pi/post-receive` hook when upgrading.

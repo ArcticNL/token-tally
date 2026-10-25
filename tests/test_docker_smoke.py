@@ -42,7 +42,7 @@ def validate_config(config):
 
 
 class Smoke:
-    def __init__(self, image, platform, directory, deadline=180, bind=False):
+    def __init__(self, image, platform, directory, deadline=180, bind=False, source_root=None):
         self.directory = Path(directory)
         self.name = "tt-smoke-" + secrets.token_hex(6)
         self.deadline = deadline
@@ -69,7 +69,7 @@ class Smoke:
         envfile.write_text("\n".join(lines) + "\n")
         self.compose = ["docker", "compose", "--project-directory", str(self.directory),
                         "--env-file", str(envfile), "--project-name", self.name,
-                        "-f", str(ROOT / "compose.yaml"), "-f", str(ROOT / "tests/compose.smoke.yaml")]
+                        "-f", str((source_root or ROOT) / "compose.yaml"), "-f", str(ROOT / "tests/compose.smoke.yaml")]
         self.cid = None
         self.url = None
 
@@ -197,6 +197,7 @@ def main():
     parser.add_argument("--platform", choices=("linux/amd64", "linux/arm64"), required=True)
     parser.add_argument("--expected-version")
     parser.add_argument("--expected-revision")
+    parser.add_argument("--source-root", type=Path, help="candidate checkout providing production compose.yaml")
     args = parser.parse_args()
     if not shutil.which("docker"):
         parser.exit(1, "FAIL Docker CLI is required; no container validation was run.\n")
@@ -206,7 +207,7 @@ def main():
         require(architecture == args.platform, "image platform differs from requested platform")
         for bind in (False, True):
             with tempfile.TemporaryDirectory(prefix="tt-docker-") as directory:
-                smoke = Smoke(args.image, args.platform, directory, bind=bind)
+                smoke = Smoke(args.image, args.platform, directory, bind=bind, source_root=args.source_root)
                 try:
                     smoke.exercise(args.expected_version, args.expected_revision)
                 finally:
