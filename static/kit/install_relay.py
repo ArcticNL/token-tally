@@ -234,7 +234,10 @@ def load_config(relay_dir=None, provider="claude"):
                                   or any(not isinstance(u, str) or not u for u in cfg["urls"])))):
         sys.exit(f"{path} has an unexpected shape; nothing changed.")
     version = cfg.get("payload_version", 1)
-    if (type(version) is not int or version not in (1, 2) or cfg.get("provider", provider) != provider
+    # A missing provider means Claude at runtime. Only an absent configuration
+    # permits a fresh installation for the requested provider.
+    saved_provider = cfg.get("provider", "claude") if path.exists() else provider
+    if (type(version) is not int or version not in (1, 2) or saved_provider != provider
             or (provider == "codex" and "payload_version" in cfg and version != 2)):
         sys.exit(f"{path} has an unsupported provider or payload version; nothing changed.")
     if "client_id" in cfg:

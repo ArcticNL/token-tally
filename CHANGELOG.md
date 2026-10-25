@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Protect legacy provider ownership.** Existing relay configurations without a
+  `provider` field remain Claude configurations. A Codex install refuses to replace
+  them before network access or writes, including when both configuration roots
+  point to the same directory. Normal Claude upgrades and fresh Codex installs
+  remain supported.
+
 - **Separate Codex installation.** Use `install_relay.py --provider codex` to add
   native hooks under `CODEX_HOME`. Install, update and uninstall preserve foreign
   handlers and the other provider's installation. `--check` reports configuration,

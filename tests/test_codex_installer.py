@@ -330,7 +330,8 @@ class CodexInstallerTests(unittest.TestCase):
         del cfg["provider"]
         self.write_json(self.config, cfg)
         before = self.snapshot()
-        self.assertIn("Configured: incomplete", self.invoke("check"))
+        with self.assertRaisesRegex(SystemExit, "unsupported provider"):
+            self.invoke("check")
         self.assertEqual(self.snapshot(), before)
 
     def test_check_requires_boolean_async_and_integer_timeout(self):
@@ -363,6 +364,35 @@ class CodexInstallerTests(unittest.TestCase):
                     self.write_json(self.settings, data)
                     self.assertIn("Configured: yes", self.invoke("check"))
 
+    def test_shared_root_install_rejects_legacy_claude_config_before_network(self):
+        self.invoke(provider="claude")
+        config = self.claude / "token-tally" / "relay.json"
+        legacy = self.read_json(config)
+        del legacy["provider"]
+        self.write_json(self.claude / "hooks.json", {"hooks": {"Stop": [{"hooks": [
+            {"type": "command", "command": "foreign-fixture-command"},
+        ]}]}})
+        self.probe.reset_mock()
+        self.capabilities.reset_mock()
+        self.fetch.reset_mock()
+        with mock.patch.object(installer, "CODEX_DIR", self.claude):
+            for version in (None, 1, 2):
+                with self.subTest(payload_version=version):
+                    cfg = dict(legacy)
+                    if version is None:
+                        del cfg["payload_version"]
+                    else:
+                        cfg["payload_version"] = version
+                    self.write_json(config, cfg)
+                    before = self.snapshot()
+                    with self.assertRaisesRegex(SystemExit, "unsupported provider"):
+                        self.invoke()
+                    self.assertEqual(self.snapshot(), before)
+        self.probe.assert_not_called()
+        self.capabilities.assert_not_called()
+        self.fetch.assert_not_called()
+        self.prompt.assert_not_called()
+
     def test_shared_root_uninstall_cannot_delete_other_provider_config_or_relay(self):
         self.invoke(provider="claude")
         config = self.claude / "token-tally" / "relay.json"
@@ -376,6 +406,34 @@ class CodexInstallerTests(unittest.TestCase):
                 with mock.patch.object(installer, "CODEX_DIR", self.claude):
                     with self.assertRaises(SystemExit):
                         self.invoke("uninstall")
+                self.assertEqual(self.snapshot(), before)
+
+    def test_existing_empty_config_is_not_a_new_codex_install(self):
+        self.relay_dir.mkdir(parents=True)
+        for content in ("{}\n", "\n"):
+            with self.subTest(content=content):
+                self.config.write_text(content, encoding="utf-8")
+                before = self.snapshot()
+                with self.assertRaisesRegex(SystemExit, "unsupported provider"):
+                    self.invoke()
+                self.assertEqual(self.snapshot(), before)
+        self.probe.assert_not_called()
+        self.capabilities.assert_not_called()
+        self.fetch.assert_not_called()
+
+    def test_legacy_claude_provider_is_preserved_on_verified_upgrade(self):
+        config = self.claude / "token-tally" / "relay.json"
+        for version in (None, 1, 2):
+            with self.subTest(payload_version=version):
+                legacy = {"urls": [SERVER + "/hook"], "key": KEY, "machine": "saved-machine",
+                          "client_id": "saved-client", "extension": {"preserve": True}}
+                if version is not None:
+                    legacy["payload_version"] = version
+                self.write_json(config, legacy)
+                self.invoke(provider="claude", key=None, name=None)
+                self.assertEqual(self.read_json(config), {**legacy, "provider": "claude", "payload_version": 2})
+                before = self.snapshot()
+                self.invoke(provider="claude", key=None, name=None)
                 self.assertEqual(self.snapshot(), before)
 
     def test_missing_config_uninstall_keeps_shared_relay_referenced_by_other_provider(self):

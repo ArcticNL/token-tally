@@ -99,5 +99,6 @@ Uninstall removes recognized Codex handlers and owned relay files, retaining
 unrelated settings and files. If both provider roots resolve to the same directory,
 it refuses a configuration owned by the other provider; without a relay config,
 it retains shared files referenced by that provider's hooks. Use distinct roots
-for two installations. See [connecting PCs](connecting-pcs.md) for saved options,
+for two installations. Existing configurations without a `provider` field belong
+to Claude and cannot be taken over by a Codex install. See [connecting PCs](connecting-pcs.md) for saved options,
 backups and Tailscale addresses.
