@@ -1,6 +1,42 @@
 # Development
 
-## Run it locally
+## Task brief and review
+
+Use [AGENTS.md](../AGENTS.md) for shared rules. Keep a task brief in the task or PR
+description; a separate planning file is not required:
+
+```text
+Goal and observable result:
+In scope / out of scope:
+Owner and expected files:
+Dependencies and affected contracts:
+Small change steps:
+Acceptance scenarios and verification commands:
+Compatibility / migration:
+Results: checks run, checks not run, and remaining risks:
+```
+
+Review the diff against these acceptance scenarios and the shared invariants.
+Separate mechanical moves from behavior changes, and use isolated checkouts for
+parallel writing tasks. Automated tests must use synthetic data and temporary
+configuration/project directories. The manual commands below deliberately use
+your own installation and are not an isolated test harness.
+
+Before a deployment, compile the Python sources (a parse-only check misses errors
+such as a `global` declaration after use) and pass all three existing test suites:
+
+```text
+python -m py_compile server.py hook_relay.py docker/entrypoint.py static/kit/install_relay.py
+python tests/test_signing.py
+python tests/test_office_state.py
+python tests/test_container_start.py
+```
+
+The current integration scripts still need fixture isolation before automated
+use on a machine with personal sessions. See their source before running them;
+the manual server command also reads local transcripts.
+
+## Run it locally with your own sessions
 
 ```bash
 python server.py --open
@@ -114,3 +150,5 @@ Do work in progress on a branch, because every push to `main` goes live. See [pi
 - **Standard library only** on the Python side, so it runs anywhere Claude Code does, Pi included.
 - **No build step:** plain ES modules, with three.js r169 in `static/vendor/`. To upgrade three.js, replace those three files, keeping `OrbitControls.js` and `CSS2DRenderer.js` from the same version.
 - **Line endings:** LF everywhere except `.bat`; see `.gitattributes`. The Pi needs LF for `post-receive` and the unit file.
+- **Windows paths:** deeply nested clones may need `git config core.longpaths true`.
+- **Connecting a PC:** the server serves `static/kit/install_relay.py` with its own address and any `--extra-url` filled in; see [connecting-pcs.md](connecting-pcs.md).

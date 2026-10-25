@@ -7,6 +7,7 @@ __pycache__/
 *.pyc
 settings.json.bak-*
 .claude/
+CLAUDE.local.md
 
 # This machine's office settings (see pi/office.env.example)
 office.env

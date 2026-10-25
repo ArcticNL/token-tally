@@ -74,7 +74,8 @@ scripts/deploy-pi.sh    push to the server and check the office came back up
 start-office.bat        double-click launcher for a local Windows run
 Dockerfile, compose.yaml, .env.example, docker/   the container (see docs/docker.md)
 tests/                  the /hook security, what the office shows, and the container's start-up
-CLAUDE.md               working rules Claude Code reads when you work on this project
+AGENTS.md               shared working rules for coding agents
+CLAUDE.md               imports AGENTS.md and adds Claude-specific working notes
 CHANGELOG.md            what changed, and what to do when upgrading
 docs/                   everything else
 ```
