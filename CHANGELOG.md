@@ -10,6 +10,12 @@
 
 - **Desk and roster correctness.** Replacement snapshots release desks before arrivals; existing overflow staff take the next available desk. Roster and personnel status update directly from received records. Keyboard focus and selection survive roster refreshes, and departing staff close their personnel file immediately.
 
+- **Verified legacy deployments:** both push and pull deploy one exact commit under
+  a shared lock, return failure on startup/health errors and record `refs/office/live`
+  only after a healthy start. Reinstall the `pi/post-receive` hook when upgrading.
+  `scripts/deploy-pi.sh` now requires a matching deployment receipt; an up-to-date
+  push does not count as a deployment. Python 3.9+ is required on the client too.
+
 - Python checks now run through `python tests/run_checks.py` with temporary configuration and dynamic local ports. `server.py --port 0` reports its actual listening port.
 
 - **Auto-deploy works with Docker.** `pi/deploy.sh` rebuilds and restarts the container when the office folder has `compose.yaml` and `.env`, so push-to-deploy and the GitHub timer keep working after moving to Docker.

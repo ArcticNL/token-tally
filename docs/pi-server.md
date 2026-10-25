@@ -38,7 +38,7 @@ Placeholders used below:
    ```bash
    git init --bare -b main ~/git/token-tally-office.git
    ```
-   Copy `pi/post-receive` to `~/git/token-tally-office.git/hooks/post-receive` and `chmod +x` it. It runs `pi/deploy.sh` from each pushed commit.
+   Copy `pi/post-receive` to `~/git/token-tally-office.git/hooks/post-receive` and `chmod +x` it. It runs `pi/deploy.py` from each pushed commit. Older commits without that helper are refused.
 
 3. **Push the code** (from your PC, in your clone):
    ```bash
@@ -89,7 +89,24 @@ For full logs, use `journalctl --user -u token-tally -f`. On some systems, a nor
 
 ## Updating the office
 
-Both ways run `pi/deploy.sh` from the commit being deployed: it checks the commit out, marks it as live and restarts the office.
+Both ways run the Python deployment helper from an exact commit. They share
+`office-deploy.lock`, check out that commit, restart and verify the runtime, and
+only then update `refs/office/live`. This ref means the last commit confirmed
+healthy; a failed attempt can leave the checkout changed. Automatic rollback is
+not part of the legacy deployment route.
+
+Docker builds receive a commit-specific local image name. The running container
+must use that image and become healthy. The systemd route requires a new stable
+service invocation and valid `/state` JSON; set `OFFICE_HEALTH_URL` in the deploy
+environment if the service uses a different port. Readiness and lock waits are
+bounded (180 seconds by default). Errors return nonzero and are recorded in
+`office-deploy-result.json` and the deploy log without configuration contents.
+
+The installed push hook must be copied again after this upgrade. Git itself can
+accept a push even when a post-receive deployment fails. The local deploy wrapper
+therefore requires a fresh matching `TOKEN_TALLY_DEPLOY` receipt. An up-to-date
+push returns no receipt and is reported as unconfirmed, not as deployed. A failed
+backup push to origin is reported separately from a healthy Pi deployment.
 
 **From a PC that can reach the server:** commit, then run
 
@@ -97,7 +114,11 @@ Both ways run `pi/deploy.sh` from the commit being deployed: it checks the commi
 scripts/deploy-pi.sh
 ```
 
-That pushes to the `pi` remote, which deploys instantly, and to `origin` if you have one. If you've set `git config office.url http://<pi-address>:8377`, it then checks the office answers. Tablets pick up the new version on their next reload.
+That pushes the exact committed `main` to the `pi` remote, verifies the hook's
+healthy-deployment receipt, then backs up the same commit to `origin` if present.
+It needs Python 3.9+ locally. The old `office.url`/`OFFICE_URL` homepage check is
+replaced by server-side readiness and identity checks. Tablets pick up the new
+version on their next reload.
 
 **From anywhere:** push to GitHub. This needs [auto-deploy](#auto-deploy-from-github).
 

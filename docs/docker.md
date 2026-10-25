@@ -110,7 +110,14 @@ The push-to-deploy and GitHub auto-deploy from [pi-server.md](pi-server.md) work
 - the read-only GitHub deploy key
 - `token-tally-pull.timer`
 
-The office folder (`~/token-tally-office`, the checkout) also holds `.env` and `data/`. When `pi/deploy.sh` finds `compose.yaml` and `.env` there, it rebuilds and restarts the container (`docker compose up -d --build`) instead of restarting the systemd service, then waits for it to report healthy. The deploy log says `container healthy` when all is well, and the output of the last build is in `office-compose.log` next to it. The account running it needs to be in the `docker` group.
+The office folder (`~/token-tally-office`, the checkout) also holds `.env` and
+`data/`. When the deployment helper finds `compose.yaml` and `.env`, it builds an
+image tagged with the exact source commit, starts it without another build/pull,
+and verifies that image's container health. Otherwise it restarts the systemd
+service. Missing Docker is an error when Docker configuration was selected.
+`office-deploy-result.json` and `office-deploy.log` record the outcome; private
+configuration and raw command output are not included. The account needs Docker
+access. The live ref changes only after successful verification.
 
 ## Moving from the systemd setup
 
