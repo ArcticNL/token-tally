@@ -12,6 +12,11 @@
   or new prompt closes earlier pending tools instead of leaving a false permission
   wait. Uncorrelated transcript history still cannot clear observed hook waits.
 
+- **Clean up quick departures.** Staff removed before their first animation frame
+  now leave the scene immediately, releasing their geometry instead of accumulating
+  at the entrance while a tab is in the background. Staff already walking still
+  follow their normal route out.
+
 - **Protect legacy provider ownership.** Existing relay configurations without a
   `provider` field remain Claude configurations. A Codex install refuses to replace
   them before network access or writes, including when both configuration roots

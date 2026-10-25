@@ -465,7 +465,10 @@ export function createActors({
     actor.label('Going home', null);
     actor.anim = 'stand';
     actor.goTo(SPOTS.door, 'door');
-    actor.onArrive = () => { actor.dispose(); if (actors.get(actor.id) === actor) actors.delete(actor.id); };
+    const finishDeparture = () => { actor.dispose(); if (actors.get(actor.id) === actor) actors.delete(actor.id); };
+    // A snapshot can remove a new actor before its first frame moves it off the door.
+    if (actor.walking) actor.onArrive = finishDeparture;
+    else finishDeparture();
     onDeparted(actor.id);
   }
 

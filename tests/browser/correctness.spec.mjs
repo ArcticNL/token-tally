@@ -15,7 +15,7 @@ for (const query of ['', '?lite']) {
       expect(after).toEqual(before.map((id) => id === 'desk-0' ? 'newcomer' : id));
       await office.publish(next);
       expect(await deskOwners(page)).toEqual(after);
-      expect(await page.evaluate(() => window.tokenTally.actors.get('desk-0').desk)).toBeNull();
+      expect(await page.evaluate(() => window.tokenTally.actors.get('desk-0')?.desk ?? null)).toBeNull();
     });
   }
 }
@@ -122,3 +122,58 @@ test('returning ID gets one active actor without reviving old selection @pr13', 
   await row(page, 'returning').press('Space');
   await expect(page.locator('#file-body')).toContainText('A new shift');
 });
+
+for (const query of ['', '?lite']) {
+  test(`departures before the first frame dispose actors and returning staff still walk out ${query || 'normal'}`, async ({ page, office }) => {
+    test.setTimeout(60_000);
+    await office.open(query);
+    const staff = Array.from({ length: 3 }, (_, i) => agent(`quick-departure-${i}`));
+    await office.publish(staff);
+    await expect(rows(page)).toHaveCount(3);
+    await row(page, staff[0].id).press('Enter');
+    // The fixture clock is paused: both snapshots arrive before the first RAF.
+    const initial = await page.evaluate((ids) => {
+      window.departureProbe = ids.map((id) => {
+        const actor = window.tokenTally.actors.get(id);
+        const probe = { actor, geometries: 0, disposed: 0 };
+        actor.root.traverse((object) => {
+          if (!object.geometry) return;
+          probe.geometries++;
+          object.geometry.addEventListener('dispose', () => probe.disposed++);
+        });
+        return probe;
+      });
+      return window.departureProbe.map(({ actor, geometries }) => ({ walking: actor.walking, target: actor.targetKey, geometries }));
+    }, staff.map((person) => person.id));
+    for (const actor of initial) {
+      expect(actor).toMatchObject({ walking: false, target: 'door' });
+      expect(actor.geometries).toBeGreaterThan(0);
+    }
+
+    await office.publish([]);
+    await expect(rows(page)).toHaveCount(0);
+    await expect(page.locator('#file')).toBeHidden();
+    expect(await page.evaluate(() => window.departureProbe.map(({ actor, geometries, disposed }) => ({
+      absent: !window.tokenTally.actors.has(actor.id), detached: actor.root.parent === null,
+      disposed: disposed === geometries,
+    })))).toEqual(staff.map(() => ({ absent: true, detached: true, disposed: true })));
+    expect((await deskOwners(page)).filter(Boolean)).toEqual([]);
+
+    // A returned ID is a fresh, selectable actor. Once it starts walking, its
+    // next departure must retain the normal walk-to-door animation and cleanup.
+    await office.publish([agent(staff[0].id, { assignment: 'Returned shift' })]);
+    await expect(row(page, staff[0].id)).toHaveAttribute('aria-pressed', 'false');
+    await row(page, staff[0].id).press('Enter');
+    await expect(page.locator('#file-body')).toContainText('Returned shift');
+    expect(await page.evaluate((id) => window.tokenTally.actors.get(id) !== window.departureProbe[0].actor, staff[0].id)).toBe(true);
+    await page.clock.runFor(100);
+    await office.publish([]);
+    expect(await page.evaluate((id) => {
+      const actor = window.tokenTally.actors.get(id);
+      return { leaving: actor?.leaving, walking: actor?.walking, attached: !!actor?.root.parent };
+    }, staff[0].id)).toEqual({ leaving: true, walking: true, attached: true });
+    await page.clock.runFor(3000);
+    expect(await page.evaluate(() => [...window.tokenTally.actors.values()].map((actor) => actor.id))).toEqual(['manager']);
+    await expect(page.locator('#file')).toBeHidden();
+  });
+}
