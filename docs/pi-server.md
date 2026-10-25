@@ -100,7 +100,11 @@ healthy; a failed attempt can leave the checkout changed. Automatic rollback is
 not part of the legacy deployment route.
 
 Docker builds receive a commit-specific local image name. The running container
-must use that image and become healthy. The systemd route requires a new stable
+must use that image and become healthy. Keep installation-specific mounts in the
+private `compose.override.yaml`; local changes to the tracked `compose.yaml`
+stop deployment before checkout. Follow the [Compose migration](docker.md#existing-installations-with-an-edited-compose-file)
+if an older installation added its names mount directly to that tracked file.
+The systemd route requires a new stable
 service invocation and valid `/state` JSON; set `OFFICE_HEALTH_URL` in the deploy
 environment if the service uses a different port. Readiness and lock waits are
 bounded (180 seconds by default). Errors return nonzero and are recorded in

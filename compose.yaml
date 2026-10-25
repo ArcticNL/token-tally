@@ -18,9 +18,8 @@ services:
     volumes:
       # The key and names: a Docker volume by default, or a folder such as ./data (set in .env).
       - ${OFFICE_DATA:-office-data}:/data
-      # With the volume, your own worker, Manager and Maintenance names can be mounted on their
-      # own (see docs/tablet-kiosk.md). With a data folder, just put names.txt in it.
-      # - ./names.txt:/data/names.txt:ro
+      # For a separate names file, use the private compose.override.yaml described
+      # in docs/docker.md. With a data folder, just put names.txt in it.
     # Locked down: nothing but /data is writable, no extra privileges.
     read_only: true
     tmpfs:

@@ -96,8 +96,12 @@ def docker_start(directory, commit, deadline):
         override = Path(temporary) / "image.json"
         override.write_text(json.dumps({"services": {"office": {"image": image}}}))
         command = ["docker", "compose", "--project-directory", str(directory),
-                   "--env-file", str(directory / ".env"), "-f", str(directory / "compose.yaml"),
-                   "-f", str(override)]
+                   "--env-file", str(directory / ".env"), "-f", str(directory / "compose.yaml")]
+        local = directory / "compose.override.yaml"
+        if local.exists():
+            command += ["-f", str(local)]
+        # Installation settings precede the exact image identity selected here.
+        command += ["-f", str(override)]
         run(command + ["build", "--quiet", "office"])
         expected = run(["docker", "image", "inspect", image, "--format", "{{.Id}}"]).stdout.strip()
         if not expected:
@@ -174,9 +178,15 @@ def execute(repo, directory, commit, source, deadline):
     if live and not ancestor(repo, live, commit):
         raise DeployError("refusing older or diverged deployment")
     paths = git(repo, "ls-tree", "-rz", "--name-only", commit).stdout.split("\0")
-    private = {"hook.key", "names.txt", ".env", "office.env", "relay.json", "data"}
+    private = {"hook.key", "names.txt", ".env", "office.env", "relay.json", "data", "compose.override.yaml"}
     if any(path.split("/", 1)[0] in private for path in paths):
         raise DeployError("candidate tracks private installation paths")
+    compose = directory / "compose.yaml"
+    if compose.exists() or compose.is_symlink():
+        # Compare actual bytes, including edits hidden by assume-unchanged flags.
+        expected = ref(repo, "HEAD:compose.yaml")
+        if compose.is_symlink() or not compose.is_file() or git(repo, "hash-object", "--no-filters", str(compose)).stdout.strip() != expected:
+            raise DeployError("local compose.yaml changes require migration to compose.override.yaml before deployment; checkout left unchanged")
     directory.mkdir(parents=True, exist_ok=True)
     git(repo, "--work-tree=" + str(directory), "checkout", "-q", "-f", "--detach", commit)
     if (directory / "compose.yaml").exists() and (directory / ".env").exists():

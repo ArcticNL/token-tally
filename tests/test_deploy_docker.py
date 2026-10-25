@@ -38,11 +38,16 @@ def main():
         compose = compose.replace('"8377:8377"', '"127.0.0.1::8377"').replace("restart: unless-stopped", 'restart: "no"')
         (source / "compose.yaml").write_text(compose)
         (office / ".env").write_text("OFFICE_ALLOW_HOSTS=office.test\n")
+        names = "Manager: Fixture Manager\nFixture Worker\n"
+        (office / "names.txt").write_text(names)
+        (office / "names.txt").chmod(0o644)
+        (office / "compose.override.yaml").write_text(
+            "services:\n  office:\n    volumes:\n      - ./names.txt:/data/names.txt:ro\n")
         run("git", "init", "-q", "-b", "main")
         run("git", "init", "-q", "--bare", str(bare))
         commits = []
         dc = ["docker", "compose", "--project-directory", str(office), "--env-file", str(office / ".env"),
-              "-f", str(office / "compose.yaml")]
+              "-f", str(office / "compose.yaml"), "-f", str(office / "compose.override.yaml")]
         try:
             for healthy in (True, False):
                 health = ("python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8377/state')\""
@@ -67,7 +72,11 @@ def main():
                     original_digest = digest
                 elif digest != original_digest:
                     raise AssertionError("deployment changed volume key")
-            print("PASS real Docker deployment: healthy commit, unhealthy replacement, preserved live ref/data")
+                mounted_names = run("docker", "exec", cid, "python", "-c",
+                    "from pathlib import Path; print(Path('/data/names.txt').read_text(),end='')").stdout
+                if mounted_names != names:
+                    raise AssertionError("deployment lost the private names mount")
+            print("PASS real Docker deployment: healthy commit, unhealthy replacement, preserved live ref/data/names mount")
         finally:
             run(*dc, "down", "--volumes", "--remove-orphans")
             for commit in commits:

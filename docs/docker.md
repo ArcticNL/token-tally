@@ -73,9 +73,49 @@ The container now runs as you and keeps `hook.key` in `./data`. The `data/` fold
 
 To use your own worker, Manager and Maintenance names (see [tablet-kiosk.md](tablet-kiosk.md#changing-the-workers-names)):
 - **With a data folder:** put `names.txt` in `data/`.
-- **With the volume:** put `names.txt` next to `compose.yaml`, uncomment the `./names.txt:/data/names.txt:ro` line in `compose.yaml`, and run `docker compose up -d` once.
+- **With the volume:** put `names.txt` next to `compose.yaml`, then add the following
+  setting to a private `compose.override.yaml` beside it. Merge it into an existing
+  override instead of replacing that file:
+
+  ```yaml
+  services:
+    office:
+      volumes:
+        - ./names.txt:/data/names.txt:ro
+  ```
+
+  Run `docker compose up -d` once. Compose loads this override automatically, and
+  the legacy deployment helper loads it explicitly. It stays out of Git and the
+  image build context. Keep installation settings here rather than editing the
+  tracked `compose.yaml`.
 
 After that, edit `names.txt` whenever you like. The office picks changes up within 30 seconds.
+
+### Existing installations with an edited Compose file
+
+Older instructions added the names mount directly to `compose.yaml`. Legacy
+deployments now refuse a locally modified `compose.yaml` before checking out or
+restarting anything, so the active configuration and names remain in place.
+
+Before retrying, pause both legacy update routes and let any running deployment
+finish. Back up the edited Compose file outside the checkout. Move its local
+settings into `compose.override.yaml` as above, preserving any existing override
+settings. Review the tracked changes against the checkout's `HEAD`, then restore
+only `compose.yaml` to that version. For a bare-repository installation, run these
+commands from the office checkout after setting `BARE` to its bare repository:
+
+```sh
+git --git-dir="$BARE" --work-tree="$PWD" diff HEAD -- compose.yaml
+# Only after saving all local settings in compose.override.yaml:
+git --git-dir="$BARE" show HEAD:compose.yaml > compose.yaml
+docker compose config
+```
+
+Inspect the resolved `/data` and `/data/names.txt` mounts, user and ports before
+retrying the exact deployment. Do not remove or recreate the data volume. The
+failed push may already have updated the bare repository's `main`; an up-to-date
+push will not rerun its hook. Use the manual legacy deployer or trigger the GitHub
+pull service after migration, then re-enable the paused routes.
 
 ## Everyday commands
 
@@ -117,7 +157,11 @@ The push-to-deploy and GitHub auto-deploy from [pi-server.md](pi-server.md) work
 The office folder (`~/token-tally-office`, the checkout) also holds `.env` and
 `data/`. When the deployment helper finds `compose.yaml` and `.env`, it builds an
 image tagged with the exact source commit, starts it without another build/pull,
-and verifies that image's container health. Otherwise it restarts the systemd
+and verifies that image's container health. A private `compose.override.yaml` is
+included before the deployer's exact image override; a candidate cannot track or
+replace this private file. Local edits to the tracked `compose.yaml` must first
+be [migrated](#existing-installations-with-an-edited-compose-file). Without Docker
+configuration, the helper restarts the systemd
 service. Missing Docker is an error when Docker configuration was selected.
 `office-deploy-result.json` and `office-deploy.log` record the outcome; private
 configuration and raw command output are not included. The account needs Docker

@@ -51,7 +51,7 @@ def main():
         check("empty OFFICE_ALLOW_HOSTS warns", "OFFICE_ALLOW_HOSTS is empty" in p.log())
 
         ignored = {line.strip() for line in (REPO / ".dockerignore").read_text().splitlines()}
-        needed = {"hook.key", "relay.json", "office.env", "names.txt", ".env", ".git"}
+        needed = {"hook.key", "relay.json", "office.env", "names.txt", ".env", ".git", "compose.override.yaml"}
         check("secrets and settings never go into the image", needed <= ignored, ", ".join(sorted(needed - ignored)))
 
     return check.finish()

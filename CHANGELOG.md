@@ -24,6 +24,13 @@
   at the entrance while a tab is in the background. Staff already walking still
   follow their normal route out.
 
+- **Preserve local Docker names mounts.** Legacy deployments now stop before
+  checkout when `compose.yaml` has local changes. Move installation settings into
+  the private `compose.override.yaml`, which ordinary Compose and deployments
+  both load. Existing names-mount customizations need the one-time
+  [Compose migration](docs/docker.md#existing-installations-with-an-edited-compose-file)
+  before retrying a refused deployment.
+
 - **Protect legacy provider ownership.** Existing relay configurations without a
   `provider` field remain Claude configurations. A Codex install refuses to replace
   them before network access or writes, including when both configuration roots

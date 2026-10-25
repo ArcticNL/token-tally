@@ -143,6 +143,57 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.attempt(candidate)[0].returncode, 0)
         self.assertEqual(self.live(), candidate)
 
+    def test_modified_compose_is_preserved_until_local_override_migration(self):
+        # Existing installations followed the old docs by editing the tracked file.
+        compose_text = (ROOT / "compose.yaml").read_text()
+        (self.source / "compose.yaml").write_text(compose_text)
+        self.a = self.commit("production-compose")
+        self.command("git", "push", str(self.repo), "main")
+        self.assertEqual(self.attempt()[1]["status"], "healthy")
+        compose = self.deploy / "compose.yaml"
+        edited = compose_text.replace("    volumes:\n", "    volumes:\n      - ./names.txt:/data/names.txt:ro\n", 1)
+        compose.write_text(edited)
+        self.command("git", "--git-dir=" + str(self.repo), "--work-tree=" + str(self.deploy),
+                     "update-index", "--assume-unchanged", "compose.yaml")
+        names = (self.deploy / "names.txt").read_bytes()
+        candidate = self.update()
+        calls = (self.fake / "calls").read_bytes()
+        self.command("git", "--git-dir=" + str(self.repo), "update-ref", "refs/remotes/origin/main", candidate)
+        for source in ("push", "github"):
+            result, receipt = self.attempt(candidate, source)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("migration to compose.override.yaml", receipt["error"])
+            self.assertEqual(compose.read_text(), edited)
+            self.assertEqual((self.fake / "calls").read_bytes(), calls)
+            self.assertEqual(self.live(), self.a)
+            self.assertEqual((self.deploy / "names.txt").read_bytes(), names)
+        # The operator moves only their setting; neither deploy nor Git edits it.
+        override = self.deploy / "compose.override.yaml"
+        override.write_text("services:\n  office:\n    volumes:\n      - ./names.txt:/data/names.txt:ro\n")
+        compose.write_text(compose_text)
+        expected = override.read_bytes()
+        self.assertEqual(self.attempt(candidate)[1]["status"], "healthy")
+        self.assertEqual(override.read_bytes(), expected)
+        self.assertEqual((self.deploy / "names.txt").read_bytes(), names)
+        invoked = [json.loads(line)[1] for line in (self.fake / "calls").read_text().splitlines()]
+        ups = [args for args in invoked if args[0] == "compose" and "up" in args]
+        files = [ups[-1][i + 1] for i, value in enumerate(ups[-1]) if value == "-f"]
+        self.assertEqual(files[:2], [str(compose.resolve()), str(override.resolve())])
+        self.assertTrue(files[-1].endswith("/image.json"), "exact image override must be last")
+
+    def test_candidate_cannot_overwrite_private_compose_override(self):
+        self.assertEqual(self.attempt()[1]["status"], "healthy")
+        override = self.deploy / "compose.override.yaml"
+        override.write_text("services: {}\n")
+        (self.source / "compose.override.yaml").write_text("replacement\n")
+        candidate = self.commit("tracked-local-override")
+        self.command("git", "push", str(self.repo), "main")
+        result, receipt = self.attempt(candidate)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("private installation paths", receipt["error"])
+        self.assertEqual(override.read_text(), "services: {}\n")
+        self.assertEqual(self.live(), self.a)
+
     def test_missing_live_does_not_skip_github_first_deploy(self):
         self.command("git", "--git-dir=" + str(self.repo), "update-ref", "refs/remotes/origin/main", self.a)
         self.assertEqual(self.attempt(source="github")[1]["status"], "healthy")

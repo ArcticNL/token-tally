@@ -17,6 +17,7 @@ names.txt
 
 # Container settings (see .env.example)
 .env
+compose.override.yaml
 
 # The container's data folder, if used (see .env.example)
 data/
