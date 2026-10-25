@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Scoped, deduplicated observations.** Hook and transcript observations now use
+  one reducer. Native tool calls count once, delayed starts cannot reopen completed
+  calls, and unrelated completions do not clear waits. Provider/client/session IDs
+  isolate workers; avatar IDs change once on upgrade. Missing parent information
+  stays unknown. Snapshots expose true `observed` state separately from animation
+  holds. Prompt, command and result text are no longer retained in office state.
+  Local transcript binding and bounded replay guarantees are documented in
+  [architecture](docs/architecture.md).
+
 - **Installer preserves other hooks.** Updates and uninstall remove individual
   Token & Tally handlers instead of whole shared groups. Rerunning the installer
   retains saved addresses, name, key and extra configuration; malformed settings

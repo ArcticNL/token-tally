@@ -1,13 +1,13 @@
-"""Office state and transcript observation, extracted without behavior changes."""
+"""Serialized, provider-neutral state reduction and local transcript observation."""
 import json
 import os
 import queue
 import threading
 import time
 from collections import deque
-from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlparse
+from . import claude
+from .events import BoundedSeen
 
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 PROJECTS = CLAUDE_DIR / "projects"
@@ -32,9 +32,6 @@ TASKS = {
 }
 NEEDS_YOU = {"AskUserQuestion"}
 GUESSABLE = {"typing", "copier", "phone"}  # tasks that usually ask for permission
-HOOK_EVENTS = {"SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
-               "PermissionRequest", "Notification", "Stop", "SubagentStart", "SubagentStop"}
-
 def task_for(name):
     for task, names in TASKS.items():
         if name in names:
@@ -46,44 +43,20 @@ def task_for(name):
     return "typing"
 
 
-def summarize(inp):
-    """A short, human description of a tool call's target."""
-    if not isinstance(inp, dict):
-        return ""
-    for key in ("file_path", "notebook_path", "path"):
-        if inp.get(key):
-            return Path(str(inp[key])).name
-    if inp.get("command"):
-        lines = str(inp["command"]).strip().splitlines()
-        return lines[0][:60] if lines else ""
-    if inp.get("pattern"):
-        return str(inp["pattern"])[:50]
-    if inp.get("query"):
-        return str(inp["query"])[:60]
-    if inp.get("url"):
-        return urlparse(str(inp["url"])).netloc
-    for key in ("description", "subject", "prompt"):
-        if inp.get(key):
-            return str(inp[key]).strip().splitlines()[0][:60]
-    return ""
-
-
-def parse_ts(value, default):
-    if not value:
-        return default
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        return default
-
-
 class Agent:
-    def __init__(self, aid, parent=None):
-        self.id, self.parent, self.temp = aid, parent, parent is not None
+    def __init__(self, key, parent=None, is_subagent=False):
+        self.key, self.id = key, key.public_id
+        self.parent, self.temp = parent, is_subagent
+        self.current_turn = None
+        self.waits = {}
+        self.source = ""
+        self.last_hook = None
+        self.limited = False
+        self.ambiguous = False
         self.project = self.cwd = self.title = self.assignment = self.machine = ""
         self.status, self.task, self.tool, self.detail = "thinking", "", "", ""
         self.since = self.last = 0.0
-        self.pending = {}  # tool_use_id -> (name, task, detail, ts)
+        self.pending = {}  # (native turn ID, call ID) -> (name, task, detail, local time)
         self.hooked = self.guess = False
         self.tools = 0
         self.log = deque(maxlen=10)
@@ -96,9 +69,20 @@ class Agent:
         if status == "working":
             self.held, self.hold_until = (task, tool, detail, self.since), ts + MIN_SHOW
 
-    def show_pending(self, ts):
-        name, task, detail, _ = max(self.pending.values(), key=lambda p: p[3])
-        self.set("working", ts, task, name, detail)
+    def relevant(self, items):
+        return {key: value for key, value in items.items() if key[0] == self.current_turn}
+
+    def refresh(self, ts, fallback="thinking"):
+        waits = self.relevant(self.waits)
+        pending = self.relevant(self.pending)
+        if waits:
+            name, task, detail, _ = next(reversed(waits.values()))
+            self.set("waiting", ts, task, name, detail)
+        elif pending:
+            name, task, detail, _ = next(reversed(pending.values()))
+            self.set("working", ts, task, name, detail)
+        else:
+            self.set(fallback, ts)
 
     def public(self, now=None):
         # Most tools finish in milliseconds, faster than the office's one-second updates, so a
@@ -111,6 +95,16 @@ class Agent:
             status, (task, tool, detail, since) = "working", self.held
         return {
             "id": self.id, "parent": self.parent, "temp": self.temp, "project": self.project,
+            "provider": self.key.provider, "client_id": self.key.client_id,
+            "session_id": self.key.session_id, "agent_id": self.key.agent_id,
+            "identity_quality": "unattributed" if self.key.unattributed else
+                                "legacy" if self.key.client_id.startswith("legacy-") else "scoped",
+            "observed": {"status": self.status, "task": self.task, "tool": self.tool,
+                         "detail": self.detail, "since": self.since, "source": self.source,
+                         "confidence": "inferred" if self.guess else "observed",
+                         "correlation": "ambiguous" if self.ambiguous else
+                                        "native" if self.current_turn else "partial",
+                         "turn_id": self.current_turn, "limited": self.limited},
             "cwd": self.cwd, "title": self.title, "assignment": self.assignment, "machine": self.machine,
             "status": status, "task": task, "tool": tool, "detail": detail,
             "guess": self.guess, "since": since, "last": self.last, "tools": self.tools,
@@ -119,29 +113,25 @@ class Agent:
 
 
 class Office:
-    def __init__(self, projects=PROJECTS):
-        self.projects = projects
-        self.lock = threading.Lock()
+    def __init__(self, projects=PROJECTS, local_client_id=None):
+        self.projects = Path(projects)
+        self.local_client_id = local_client_id or claude.local_client_id(self.projects.parent / "token-tally" / "relay.json")
+        self.lock = threading.RLock()
+        self.seen = BoundedSeen()
+        self.serial = 0
         self.agents = {}
         self.files = {}
         self.clients = set()
         self.hooks_seen = False
         self.last_body = None
 
-    # ---- transcripts -------------------------------------------------------
-    def agent(self, aid, parent=None):
+    def agent(self, key, parent=None, is_subagent=False):
+        aid = key.public_id
         if aid not in self.agents:
-            self.agents[aid] = Agent(aid, parent)
+            self.agents[aid] = Agent(key, parent, is_subagent)
         return self.agents[aid]
 
-    @staticmethod
-    def ids_for(path, line):
-        if path.parent.name == "subagents":
-            return path.stem, path.parent.parent.name
-        if line.get("isSidechain") and line.get("agentId"):
-            return "agent-" + str(line["agentId"]), line.get("sessionId") or path.stem
-        return path.stem, None
-
+    # ---- transcripts -------------------------------------------------------
     def scan(self, now):
         if not self.projects.is_dir():
             return
@@ -180,169 +170,180 @@ class Office:
                     self.ingest(path, raw.decode("utf-8", "replace"))
 
     def ingest(self, path, raw):
-        try:
-            line = json.loads(raw)
-        except ValueError:
-            return
-        if not isinstance(line, dict):
-            return
-        kind = line.get("type")
-        if kind not in ("user", "assistant", "summary", "custom-title"):
-            return
-        aid, parent = self.ids_for(path, line)
-        a = self.agent(aid, parent)
-        if line.get("cwd"):
-            a.cwd = str(line["cwd"])
-            a.project = Path(a.cwd).name or a.cwd
-        if kind == "summary":
-            a.title = a.title or str(line.get("summary", ""))[:80]
-            return
-        if kind == "custom-title":
-            a.title = str(line.get("customTitle", ""))[:80]
-            return
-        ts = parse_ts(line.get("timestamp"), time.time())
-        a.last = max(a.last, ts)
-        msg = line.get("message") or {}
-        content = msg.get("content")
+        for event in claude.transcript_events(path, raw, self.local_client_id, now=time.time()):
+            self.apply(event)
 
-        if kind == "user":
-            if line.get("isMeta"):
-                return
-            if isinstance(content, str):
-                self.on_prompt(a, content, ts)
-                return
-            if not isinstance(content, list):
-                return
-            blocks = [b for b in content if isinstance(b, dict)]
-            results = [b for b in blocks if b.get("type") == "tool_result"]
-            for b in results:
-                a.pending.pop(b.get("tool_use_id"), None)
-            if results:
-                if a.pending:
-                    a.show_pending(ts)
-                else:
-                    a.set("thinking", ts)
-            else:
-                for b in blocks:
-                    if b.get("type") == "text":
-                        self.on_prompt(a, b.get("text", ""), ts)
-            return
+    def hook(self, data, client_id=None, event_id=None):
+        for event in claude.hook_events(data, client_id, event_id, now=time.time()):
+            self.apply(event)
 
-        if not isinstance(content, list):
-            return
-        for b in content:
-            if not isinstance(b, dict):
-                continue
-            bt = b.get("type")
-            if bt == "tool_use":
-                name = str(b.get("name", "?"))
-                task, detail = task_for(name), summarize(b.get("input"))
-                a.pending[b.get("id")] = (name, task, detail, ts)
-                a.tools += 1
-                a.log.append({"t": ts, "text": f"{name} {detail}".strip()})
-                if name in NEEDS_YOU:
-                    a.set("waiting", ts, task, name, "Has a question for you")
-                else:
-                    a.set("working", ts, task, name, detail)
-            elif bt == "text" and str(b.get("text", "")).strip() and not a.pending:
-                a.set("replying", ts)
-            elif bt == "thinking" and not a.pending:
-                a.set("thinking", ts)
-        if msg.get("stop_reason") == "end_turn" and not a.pending:
-            a.set("idle", ts)
-
+    # ---- one reducer for every source --------------------------------------
     @staticmethod
-    def on_prompt(a, text, ts):
-        text = str(text).strip()
-        if not text or text.startswith(("<", "Caveat:")):
-            return
-        if text.startswith("[Request interrupted"):
-            a.pending.clear()
-            a.set("idle", ts)
-            return
-        a.assignment = text.splitlines()[0][:120]
-        a.pending.clear()
-        a.set("thinking", ts)
-        a.log.append({"t": ts, "text": "New assignment"})
+    def scope(key):
+        return key.provider, key.client_id, key.session_id
 
-    # ---- hooks -------------------------------------------------------------
-    # Hooks alone are enough to run the office, which is how it works on a
-    # machine (like a Raspberry Pi) that can't see the PC's transcripts.
-    def hook(self, data):
-        sid = data.get("session_id")
-        if not sid:
-            return
-        sid = str(sid)
-        event = str(data.get("hook_event_name", ""))
-        if event not in HOOK_EVENTS:
-            return
-        now = time.time()
+    def remember(self, tag, actor, value, now):
+        return self.seen.add((tag, actor, value), now, scope=actor)
+
+    def known(self, tag, actor, value, now):
+        return self.seen.contains((tag, actor, value), now)
+
+    def close_calls(self, a, keys, now):
+        for key in keys:
+            self.remember("end", a.key, key, now)
+            a.pending.pop(key, None)
+            a.waits.pop(key, None)
+
+    def call_key(self, a, e, now):
+        if e.tool_call_id:
+            key = (e.turn_id, e.tool_call_id)
+            # Include retained terminal evidence: a result can arrive before a
+            # start, and one of the sources may omit native turn metadata.
+            retained = {record[2] for record in self.seen.keys_for_scope(a.key, now)
+                        if record[0] in ("tool", "end")}
+            matches = {k for k in (*a.pending, *a.waits, *retained) if k[1] == e.tool_call_id}
+            native = {k for k in matches if k[0] is not None}
+            if e.turn_id is None and native:
+                return next(iter(native)) if len(native) == 1 else None
+            missing = (None, e.tool_call_id)
+            if e.turn_id and missing in matches and not native:
+                for items in (a.pending, a.waits):
+                    if missing in items:
+                        items[key] = items.pop(missing)
+                # These are newly qualified identities, not a refresh on each
+                # duplicate. Their own first-observation TTL starts here.
+                for tag in ("tool", "end"):
+                    if self.known(tag, a.key, missing, now):
+                        self.remember(tag, a.key, key, now)
+                        self.seen.discard((tag, a.key, missing))
+            return key
+        if e.kind == "tool_end" and e.tool_name:
+            matches = [k for k, v in a.pending.items() if k[0] == e.turn_id and v[0] == e.tool_name]
+            if len(matches) == 1:
+                return matches[0]
+        if e.kind == "wait":
+            # A wait with no call ID is turn-scoped; another tool finishing is
+            # not evidence that this question/permission was answered.
+            return e.turn_id, None
+        self.serial += 1
+        return e.turn_id, ("anonymous", self.serial)
+
+    def apply(self, e):
+        now = time.time()  # local retention/liveness; provider timestamps never order events
         with self.lock:
-            self.hooks_seen = True
-            if event == "SessionEnd":
+            if e.event_id and not self.remember("delivery", e.actor, e.event_id, now):
+                return
+            scope = self.scope(e.actor)
+            closed = ("session_end", scope)
+            root_start = e.kind == "session_start" and not e.is_subagent and not e.actor.unattributed
+            if root_start:
+                self.seen.discard(closed)
+            elif self.seen.contains(closed, now):
+                return
+            if e.source == "hook":
+                self.hooks_seen = True
+            if e.kind == "session_end":
                 for aid, a in list(self.agents.items()):
-                    if aid == sid or a.parent == sid:
+                    if self.scope(a.key) == scope:
                         del self.agents[aid]
+                self.seen.add(closed, now, scope=scope)
                 return
-            agent_id = data.get("agent_id")
-            if event in ("SubagentStart", "SubagentStop") and not agent_id:
+            a = self.agent(e.actor, e.parent.public_id if e.parent else None, e.is_subagent)
+            a.temp = a.temp or e.is_subagent
+            if e.parent and e.parent != e.actor:
+                a.parent = e.parent.public_id
+            a.last = now
+            a.hooked = a.hooked or e.source == "hook"
+            if e.source == "hook":
+                a.last_hook = now
+            a.project = e.project or a.project
+            a.machine = e.machine or a.machine
+            a.title = e.title or a.title
+            if a.current_turn is None and e.turn_id:
+                a.current_turn = e.turn_id
+            current = e.turn_id == a.current_turn
+            # Untagged legacy events cannot be ordered against native turns.
+            # They remain observable as activity but cannot clear a native wait.
+            if e.kind == "metadata":
                 return
-            boss = self.agent(sid)
-            a = self.agent("agent-" + str(agent_id), sid) if agent_id else boss
-            for who in {boss, a}:
-                who.hooked = True
-                who.last = now
-                if data.get("machine"):
-                    who.machine = str(data["machine"])[:40]
-                if data.get("cwd") and not who.cwd:
-                    who.cwd = str(data["cwd"])
-                    who.project = Path(who.cwd.replace("\\", "/")).name or who.cwd
-            name = str(data.get("tool_name") or "")
-            if event == "SessionStart":
+            if e.kind == "session_start":
                 if not a.since:
+                    a.source = e.source
+                    a.set("thinking" if a.temp else "idle", now)
+                return  # compaction/start notifications never reset active work
+            if e.kind == "prompt":
+                if e.turn_id and self.known("retired_turn", e.actor, e.turn_id, now):
+                    return
+                # Hook+transcript without native correlation is ambiguous. A
+                # historical transcript prompt must not erase live tool/wait evidence.
+                if not e.turn_id and e.source == "transcript" and (a.pending or a.waits):
+                    return
+                if e.turn_id == a.current_turn and e.turn_id:
+                    if not self.remember("prompt", e.actor, e.turn_id, now):
+                        return
+                else:
+                    if a.current_turn:
+                        self.remember("retired_turn", e.actor, a.current_turn, now)
+                    a.current_turn = e.turn_id
+                    if e.turn_id:
+                        self.remember("prompt", e.actor, e.turn_id, now)
+                    self.close_calls(a, [k for k in (*a.pending, *a.waits)
+                                         if e.turn_id is None or k[0] != e.turn_id], now)
+                a.source = e.source
+                a.log.append({"t": now, "text": "New assignment"})
+                a.refresh(now)
+                return
+            if e.kind in ("tool_start", "tool_end", "wait"):
+                pending_before = set(a.pending)
+                key = self.call_key(a, e, now)
+                if key is None:
+                    a.ambiguous = True
+                    return
+                current = key[0] == a.current_turn
+                ended = self.known("end", e.actor, key, now)
+                retired = bool(key[0] and self.known("retired_turn", e.actor, key[0], now))
+                if e.kind == "tool_start" or (e.kind == "tool_end" and
+                                             (e.tool_call_id or key in a.pending)):
+                    if self.remember("tool", e.actor, key, now):
+                        a.tools += 1
+                        a.log.append({"t": now, "text": (e.tool_name or "Tool") + (" " + e.detail if e.detail else "")})
+                if e.kind == "tool_start":
+                    if ended or retired:
+                        return
+                    if key in a.pending:
+                        if key not in pending_before and current:
+                            a.source = e.source
+                            a.refresh(now)
+                        return
+                    value = (e.tool_name, task_for(e.tool_name), e.detail, now)
+                    a.pending[key] = value
+                    if e.tool_name in NEEDS_YOU:
+                        a.waits[key] = (value[0], value[1], "Has a question for you", now)
+                elif e.kind == "wait":
+                    if ended or retired:
+                        return
+                    a.waits[key] = (e.tool_name, task_for(e.tool_name) if e.tool_name else "", e.detail, now)
+                else:
+                    self.close_calls(a, [key], now)
+                for items in (a.pending, a.waits):
+                    if len(items) > 4096:
+                        items.pop(next(iter(items)))
+                        a.limited = True
+                if current:
+                    a.source = e.source
+                    a.refresh(now)
+            elif e.kind in ("stop", "interrupt"):
+                if e.source == "transcript" and e.turn_id is None and (a.pending or a.waits):
+                    return  # no causal link from a historical line to these live calls
+                self.close_calls(a, [k for k in (*a.pending, *a.waits) if k[0] == e.turn_id], now)
+                if current:
+                    a.source = e.source
                     a.set("idle", now)
-            elif event == "UserPromptSubmit":
-                self.on_prompt(a, data.get("prompt") or "", now)
-                if a.status != "thinking":
-                    a.set("thinking", now)
-            elif event == "PreToolUse" and name:
-                task, detail = task_for(name), summarize(data.get("tool_input"))
-                a.pending[str(data.get("tool_use_id") or f"{name}:{now}")] = (name, task, detail, now)
-                a.tools += 1
-                a.log.append({"t": now, "text": f"{name} {detail}".strip()})
-                if name in NEEDS_YOU:
-                    a.set("waiting", now, task, name, "Has a question for you")
-                else:
-                    a.set("working", now, task, name, detail)
-            elif event == "PermissionRequest":
-                a.set("waiting", now, task_for(name) if name else a.task, name or a.tool,
-                      summarize(data.get("tool_input")) or a.detail)
-            elif event in ("PostToolUse", "PostToolUseFailure"):
-                self.resolve(a, str(data.get("tool_use_id") or ""), name)
-                if a.pending:
-                    a.show_pending(now)
-                else:
-                    a.set("thinking", now)
-            elif event == "Notification":
-                message = str(data.get("message", ""))
-                kind = str(data.get("notification_type", ""))
-                if kind == "permission_prompt" or "permission" in message.lower():
-                    a.set("waiting", now, a.task, a.tool, message[:90])
-            elif event == "SubagentStart":
-                a.assignment = a.assignment or str(data.get("agent_type") or "Helping out")[:120]
-                a.set("thinking", now)
-            elif event in ("Stop", "SubagentStop"):
-                a.pending.clear()
-                a.set("idle", now)
-
-    @staticmethod
-    def resolve(a, tool_use_id, name):
-        if tool_use_id in a.pending:
-            del a.pending[tool_use_id]
-            return
-        same = [k for k, p in a.pending.items() if p[0] == name]
-        if same:
-            del a.pending[max(same, key=lambda k: a.pending[k][3])]
+                # A Stop is an observation, not proof that this turn cannot
+                # continue. New calls in the same native turn remain valid.
+            elif current and e.kind in ("thinking", "reply"):
+                a.source = e.source
+                a.refresh(now, "replying" if e.kind == "reply" else "thinking")
 
     # ---- loop --------------------------------------------------------------
     def tick(self):
@@ -351,8 +352,8 @@ class Office:
             self.scan(now)
             for aid, a in list(self.agents.items()):
                 quiet = now - a.last
-                if a.status == "working" and a.pending and not a.hooked:
-                    name, task, detail, ts = max(a.pending.values(), key=lambda p: p[3])
+                if a.status == "working" and a.relevant(a.pending) and (a.last_hook is None or now - a.last_hook > 30):
+                    name, task, detail, ts = max(a.relevant(a.pending).values(), key=lambda p: p[3])
                     if task in GUESSABLE and now - ts > WAIT_GUESS:
                         a.set("waiting", now, task, name, detail, guess=True)
                 if a.status == "replying" and quiet > 8:
@@ -367,9 +368,6 @@ class Office:
                         del self.agents[aid]
                 elif quiet > CLOCK_OUT_AFTER:
                     del self.agents[aid]
-            for aid, a in list(self.agents.items()):
-                if a.temp and a.parent not in self.agents:
-                    del self.agents[aid]
             body = json.dumps([a.public() for a in self.agents.values()])
             changed = body != self.last_body
             self.last_body = body
@@ -380,7 +378,9 @@ class Office:
         if body is None:
             with self.lock:
                 body = json.dumps([a.public() for a in self.agents.values()])
-        return '{"now": %f, "hooks": %s, "agents": %s}' % (time.time(), json.dumps(self.hooks_seen), body)
+        return '{"now": %f, "hooks": %s, "agents": %s, "diagnostics": %s}' % (
+            time.time(), json.dumps(self.hooks_seen), body,
+            json.dumps({"dedup_evictions": self.seen.evictions, "dedup_expirations": self.seen.expirations}))
 
     def subscribe(self):
         q = queue.Queue(maxsize=64)

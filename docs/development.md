@@ -199,10 +199,10 @@ The state classes and transcript helpers live in `token_tally/office.py`.
 | Part | What it does |
 | --- | --- |
 | `TASKS`, `task_for()` | tool name → task category |
-| `summarize()` | tool input → short detail |
+| `token_tally/claude.py` | validated metadata-only hook/transcript adapters |
 | `Agent` | one worker's state; `public()` is what the browser gets |
 | `Office.scan()`, `ingest()` | transcript tailing and parsing |
-| `Office.hook()` | hook events → state changes |
+| `Office.apply()` | one reducer for all provider observations |
 | `Office.tick()` | guesses, clock-outs, broadcast |
 | `Handler` | HTTP routes, host check, hook key check, SSE |
 
@@ -225,7 +225,7 @@ The state classes and transcript helpers live in `token_tally/office.py`.
 
 1. **Build it** in `buildStations()` from boxes. Remember `box(w, h, d, color, x, y, z)` puts `y` at the **bottom** of the box.
 2. **Add its spots** to a new list in `ST`. Give each spot `{x, z, face, sit?, via}`, where `via` lists the points from the spot back out to the aisle (z = 0) without crossing furniture. Face 0 looks at +z (towards the camera), π looks at −z.
-3. **Map a task to it:** add the task in `server.py` `TASKS`, then add a case in `intent()` plus `STATION_ANIM`.
+3. **Map a task to it:** add the task in `token_tally/office.py` `TASKS`, then add a case in `intent()` plus `STATION_ANIM`.
 
 ## Deploying
 

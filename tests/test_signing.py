@@ -18,7 +18,7 @@ def state(base):
     code, body = request(base + "/state")
     if code != 200:
         raise RuntimeError(f"state returned {code}")
-    return {agent["id"] for agent in json.loads(body)["agents"]}
+    return {agent["session_id"] for agent in json.loads(body)["agents"]}
 
 
 def main():

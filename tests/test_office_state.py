@@ -6,8 +6,13 @@ sys.dont_write_bytecode = True
 from support import Checks, Sandbox  # noqa: E402
 
 
+def actor_id(aid):
+    from token_tally.events import ActorKey
+    return ActorKey("claude", "legacy-unknown", "s1", aid[6:] if aid.startswith("agent-") else None).public_id
+
+
 def shown(office, aid):
-    agent = office.agents.get(aid)
+    agent = office.agents.get(actor_id(aid))
     return agent.public() if agent else None
 
 
@@ -65,16 +70,16 @@ def main():
             sub("asking", hook_event_name="PreToolUse", tool_name="Bash", tool_use_id="a1", tool_input={"command": "deploy"})
             sub("asking", hook_event_name="PermissionRequest", tool_name="Bash", tool_input={"command": "deploy"})
             o.tick()
-            check("three temps on shift", {"agent-quiet", "agent-busy", "agent-asking"} <= set(o.agents))
+            check("three temps on shift", {actor_id(x) for x in ("agent-quiet", "agent-busy", "agent-asking")} <= set(o.agents))
             later(60)
             o.tick()
-            check("quiet temp still there after 60 s", "agent-quiet" in o.agents)
+            check("quiet temp still there after 60 s", actor_id("agent-quiet") in o.agents)
             later(31)
             o.tick()
-            check("quiet temp goes home after 90 s", "agent-quiet" not in o.agents)
-            check("temp with a running tool stays", "agent-busy" in o.agents)
-            check("temp waiting for your sign-off stays", "agent-asking" in o.agents)
-            check("the main worker stays", "s1" in o.agents)
+            check("quiet temp goes home after 90 s", actor_id("agent-quiet") not in o.agents)
+            check("temp with a running tool stays", actor_id("agent-busy") in o.agents)
+            check("temp waiting for your sign-off stays", actor_id("agent-asking") in o.agents)
+            check("the main worker stays", actor_id("s1") in o.agents)
 
     return check.finish()
 

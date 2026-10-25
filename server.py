@@ -250,8 +250,15 @@ def main():
                              "PCs set up with the installer fall back to it (repeatable)")
     parser.add_argument("--names-file", type=Path, default=NAMES_FILE,
                         help="the cast file (worker names, Manager and Maintenance lines); default names.txt next to server.py")
+    parser.add_argument("--local-client-id", help="explicit identity for this computer's Claude transcripts")
     parser.add_argument("--open", action="store_true", help="open the office in your browser")
     args = parser.parse_args()
+
+    if args.local_client_id:
+        if not isinstance(args.local_client_id, str) or len(args.local_client_id) > 512 or any(
+                ord(c) < 32 or ord(c) == 127 for c in args.local_client_id):
+            parser.error("--local-client-id must be a nonempty identifier of at most 512 characters")
+        office.local_client_id = args.local_client_id
 
     EXTRA_URLS.extend(u.rstrip("/") for u in args.extra_url)
     NAMES_FILE = args.names_file

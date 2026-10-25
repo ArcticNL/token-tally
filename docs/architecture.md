@@ -17,21 +17,21 @@ Nothing in the office can control Claude. Data flows one way, from Claude Code t
 ## Two ways the server learns what agents do
 
 1. **Hooks (used on the Pi).** Claude Code runs `hook_relay.py` for every hook event. The relay posts a trimmed copy to `POST /hook`, signed with the office key (an HMAC; the key itself never leaves the PC), trying Tailscale addresses first. The Pi can't see any PC's files, so hooks are the only source there.
-2. **Transcripts (local runs).** When the server runs on the same computer as Claude Code, it also tails the JSONL transcripts in `~/.claude/projects/*/*.jsonl` and `*/*/subagents/*.jsonl`. That way it works with no hooks installed at all. Files are read oldest-first, because a session that moved folders leaves two transcripts and the newest must win.
+2. **Transcripts (local runs).** When the server runs on the same computer as Claude Code, it also tails the JSONL transcripts in `~/.claude/projects/*/*.jsonl` and `*/*/subagents/*.jsonl`. That way it works with no hooks installed at all. Equivalent records in moved files share an event ID; file modification time is not causal ordering.
 
-Both feed the same `Agent` records, so they can be mixed.
+Both adapters emit `Event` records into the same serialized `Office.apply()` reducer. Local transcripts bind only to the client ID in this installation’s `token-tally/relay.json` (or its legacy machine label). Without that file they use a separate `local-transcript` identity. `--local-client-id` can explicitly bind them; remote clients are never guessed from matching session IDs.
 
 ### Hook events used
 
 | Event | Effect |
 | --- | --- |
 | `SessionStart` | Worker clocks in (idle, waiting for a first prompt) |
-| `UserPromptSubmit` | New assignment (first line of the prompt), status *thinking* |
+| `UserPromptSubmit` | New assignment observed, status *thinking*; prompt text is discarded |
 | `PreToolUse` | Status *working* at the station for that tool; the tool is logged |
 | `PermissionRequest` / `Notification` (permission) | Status *waiting*: hand up, yellow **!** |
 | `PostToolUse` / `PostToolUseFailure` | Tool finished; back to *thinking*, or the next pending tool |
-| `SubagentStart` / `SubagentStop` | A temp (`agent-<id>`, parent = session) arrives / finishes |
-| `Stop` | Turn finished, status *idle* (coffee, then a game of Mines) |
+| `SubagentStart` / `SubagentStop` | A scoped temp arrives / stops; direct parent is set only from explicit evidence |
+| `Stop` | Stop observed, status *idle*; the same turn may continue later |
 | `SessionEnd` | The worker and their temps go home |
 
 Unknown events and posts without a `session_id` are ignored. The installer uses an empty post to test the key.
@@ -39,11 +39,12 @@ Unknown events and posts without a `session_id` are ignored. The installer uses 
 ## Agent state (token_tally/office.py)
 
 `server.py` retains the CLI, HTTP routes, request signing checks and SSE framing.
-`token_tally/office.py` contains `Agent`, `Office` and the existing transcript and
-status helpers. The office receives its transcript directory explicitly, which
+`token_tally/office.py` contains `Agent`, `Office`, the reducer and transcript tailing.
+`events.py` defines canonical identities and bounded deduplication; `claude.py`
+validates and translates hooks and transcript records. The office receives its transcript directory explicitly, which
 also keeps isolated tests independent of the user's configuration.
 
-Each agent has `status` (`thinking`, `working`, `replying`, `waiting`, `idle`), a `task` category, the `tool` and a short `detail` (a file name, the first line of a command, a search query or a host name). It also keeps a `pending` map of open tool calls, a `log` of the last 10 actions, and the `assignment`, `project`, `cwd` and `machine`.
+Each agent has `status` (`thinking`, `working`, `replying`, `waiting`, `idle`), a `task` category, the `tool` and a short `detail` (a file basename when available; no command, query, prompt or result body). It also keeps a `pending` map of open tool calls, a `log` of the last 10 actions, and the `assignment`, `project`, `cwd` and `machine`.
 
 The tool decides the task, which decides the station:
 
@@ -67,7 +68,37 @@ Every second, `tick()` does the following:
   - temps 45 s after finishing
   - temps quiet for 90 s with no tool running and nothing waiting on you, because the "subagent finished" event doesn't always arrive
   - any temp after 15 min of silence
-  - temps whose parent left
+
+Actor IDs encode `(provider, client_id, session_id, agent_id)` with a separate
+unattributed-actor marker. They are opaque identifiers, not encryption. Identical
+native IDs on different clients/providers/sessions cannot collide. Legacy relays
+use `legacy-machine:<label>` or `legacy-unknown`; their identity is explicitly
+weaker. Upgrading changes avatar IDs once. A subagent without a known parent stays
+in state; consumers must render it independently rather than discard it.
+
+Each snapshot retains the existing flat presentation fields and adds `provider`,
+`client_id`, `session_id`, `agent_id`, `identity_quality` and an `observed` object:
+`status`, `task`, `tool`, `detail`, `since`, `source`, `confidence`, `turn_id`,
+`limited`. `observed` is never animation-held; `confidence: inferred` marks the
+transcript timeout guess. Counts mean observed tool calls, not successes.
+
+Native call IDs deduplicate tool starts/results across sources. Terminal evidence
+arriving first counts once and prevents a late start reopening that call. Waits
+are per call or per turn; finishing another call cannot clear them. Stop closes
+known calls but allows new calls in the same turn. A session-end tombstone blocks
+late events until an explicit root start. Native turn boundaries isolate late
+results; without turn IDs or sequence metadata total ordering is unknowable.
+An uncorrelated historical transcript prompt/stop cannot erase live pending calls.
+Missing call IDs are matched by name only when exactly one call matches; ambiguous
+calls remain pending. Missing-ID waits persist until a correlated turn stop or
+new prompt, rather than pretending that another tool answered them.
+
+Delivery IDs, terminal calls and retired turns use a 65-minute first-seen TTL,
+65,536 global cache entries and 4,096 entries per actor. Duplicates do not refresh
+retention. Global snapshot `diagnostics` reports expiry and capacity eviction;
+replay guarantees end at that boundary or process restart. Pending calls/waits are
+also capped at 4,096 each per actor; loss sets `observed.limited`. These caches are
+separate from the security nonce cache. No durable event history is kept.
 
 Separately, `Agent.public()` keeps a tool on show for at least `MIN_SHOW` (4 s) after it starts. Most tools finish in milliseconds, faster than the one-second updates, so without this a worker would almost never leave their desk. The hold never covers a *waiting* status.
 - If anything changed, broadcasts `{"now", "hooks", "agents": [...]}` to every `/events` client.
