@@ -384,6 +384,29 @@ class InstallerTests(unittest.TestCase):
         self.fetch.assert_not_called()
         self.new_client.assert_not_called()
 
+    def test_update_downloads_from_reachable_fallback_and_keeps_saved_addresses(self):
+        for capabilities in (None, CAPABILITIES):
+            with self.subTest(capabilities=capabilities):
+                self.existing()
+                self.check_key.side_effect = None
+                self.check_key.return_value = ("ok", EXTRA + "/hook")
+                self.capabilities.return_value = capabilities
+
+                def fetch(url):
+                    if url == SERVER + "/kit/hook_relay.py":
+                        raise OSError("synthetic primary unavailable")
+                    self.assertEqual(url, EXTRA + "/kit/hook_relay.py")
+                    return INSTALLED_V2_RELAY
+
+                self.fetch.reset_mock()
+                self.fetch.side_effect = fetch
+                self.install()
+                self.fetch.assert_called_once_with(EXTRA + "/kit/hook_relay.py")
+                self.assertEqual(self.relay.read_bytes(), INSTALLED_V2_RELAY)
+                config = self.read_json(self.config)
+                self.assertEqual(config["urls"], [SERVER + "/hook", EXTRA + "/hook"])
+                self.assertEqual(config["payload_version"], 2 if capabilities else 1)
+
     def test_saved_v2_without_relay_and_unknown_capabilities_refuses_without_writes(self):
         self.existing(config={"urls": [SERVER + "/hook"], "key": KEY,
             "client_id": "existing-stable-client", "provider": "claude", "payload_version": 2})

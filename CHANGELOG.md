@@ -10,6 +10,11 @@
   the complete opaque actor ID, so workers from the same provider no longer share
   the same visible prefix. Badges stay stable across cast and status changes.
 
+- **Relay updates through a reachable fallback.** The installer downloads the
+  relay from the address that accepted the key and supplied server capabilities,
+  so an unavailable saved primary address no longer blocks an update. Saved
+  address order and relay identity stay intact.
+
 - **Keep uncorrelated permission waits visible.** Native tool activity cannot
   hide an earlier permission whose turn is unknown. Its displayed correlation
   stays partial until an exact call match or applicable prompt boundary resolves

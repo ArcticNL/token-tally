@@ -100,6 +100,24 @@ class CodexInstallerTests(unittest.TestCase):
         self.assertIn("/hooks", output)
         self.assertIn("receipt has not been verified", output)
 
+    def test_codex_download_uses_the_fallback_that_verified_server_support(self):
+        fallback = "http://fallback-office.invalid:8377"
+        self.probe.side_effect = None
+        self.probe.return_value = ("ok", fallback + "/hook")
+
+        def fetch(url):
+            if url.startswith(SERVER + "/"):
+                raise OSError("synthetic primary unavailable")
+            self.assertEqual(url, fallback + "/kit/hook_relay.py")
+            return RELAY
+
+        self.fetch.side_effect = fetch
+        self.invoke(server=SERVER, extra_url=[fallback])
+        self.capabilities.assert_called_once_with(fallback + "/hook")
+        self.fetch.assert_called_once_with(fallback + "/kit/hook_relay.py")
+        self.assertEqual(self.relay.read_bytes(), RELAY)
+        self.assertEqual(self.read_json(self.config)["urls"], [SERVER + "/hook", fallback + "/hook"])
+
     def test_installed_commands_deliver_sanitized_events_to_real_office(self):
         with Sandbox() as sandbox, sandbox.activate(), mock.patch.object(installer, "OPENER", OPENER):
             keyfile = sandbox.data / "synthetic.key"

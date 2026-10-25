@@ -417,11 +417,14 @@ def install(args):
     else:
         print("Getting the relay from the office...")
         local = Path(__file__).with_name("hook_relay.py")
+        # Use the same reachable office that accepted the key and supplied the
+        # capabilities. The saved primary address may be unavailable off-site.
+        source_server = where.removesuffix("/hook") if where else server
         try:
-            relay_src = fetch(server.rstrip("/") + "/kit/hook_relay.py")
+            relay_src = fetch(source_server.rstrip("/") + "/kit/hook_relay.py")
         except Exception:
             if not local.exists():
-                sys.exit(f"Couldn't reach {server}. Is the office running, and can this PC reach it?")
+                sys.exit(f"Couldn't reach {source_server}. Is the office running, and can this PC reach it?")
             relay_src = local.read_bytes()
     if version == 2 and not source_supports_payload_version(relay_src, 2):
         sys.exit("The selected relay source does not declare v2 support. Nothing changed.")
