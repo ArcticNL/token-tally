@@ -47,6 +47,14 @@ Automated tests use synthetic hook JSON, temporary configurations, fake network
 failures and localhost office servers. They include privacy, reordered events,
 partial identities, cancellation boundaries, neutral output and delivery deadlines.
 They do not launch a real AI session or change personal Codex configuration.
+
+The [browser suite](development.md#isolated-browser-regression-tests) also downloads
+the real installer, validates its temporary Codex configuration and executes the
+installed hook commands with synthetic events. It follows signed delivery through
+the Python reducer and real SSE to the roster and personnel file in Chromium.
+This verifies the installed component chain, including unknown attribution and
+observed evidence, without assuming a successful relay exit proves receipt.
+
 A live installed-Codex smoke test remains a separate manual check; supported hook
 behavior depends on the installed Codex release and its trust settings.
 

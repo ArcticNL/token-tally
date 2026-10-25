@@ -180,9 +180,21 @@ Python 3.13; production still has no Node dependency.
 server and observes its real SSE in Chromium. It covers client/parent identity,
 status held for animation versus observed status, receipt timestamps and scoped
 session shutdown. Browser traffic still permits only GET requests. The helper
-also isolates `CODEX_HOME` and XDG paths. The metadata fixture tests exercise
-provider-neutral rendering, including Codex labels; they do not establish native
-Codex ingestion support or replace the PR11 integration check.
+also isolates `CODEX_HOME` and XDG paths.
+
+`codex.spec.mjs` exercises the actual installer → installed Codex relay → signed
+Python ingestion → SSE → Chromium chain. Its helper downloads the installer from
+a temporary keyed server, installs into temporary `HOME`/`CODEX_HOME`, validates
+the generated configuration and executes the commands from that `hooks.json`
+with synthetic native hook JSON. It checks neutral hook output, distinct root,
+child and unattributed actors, unknown parent labels, observed evidence, waits
+across compaction and tool completion, receipt timestamps, session shutdown and
+absence of private fixture text in snapshots and the UI. Successful relay exit
+alone is insufficient: each event must produce its expected SSE state. The helper
+uses POSIX pipes on macOS and Linux and cleans up on stdin EOF or SIGTERM.
+This tests the installed components, but does not launch Codex, grant hook trust
+or establish that a live Codex session invokes those hooks. That remains the
+separate manual check in [Codex integration](codex.md#verification).
 
 The harness pauses Playwright's clock and installs seeded `Math.random` before the application starts. All fixture times derive from that clock. Advance normal application time with `page.clock.runFor()`; `tokenTally.advance()` does not control Date/timers/random and must not be used alongside the clock. Native EventSource reconnect uses browser networking time, so its test waits for connection events and holds/releases the reconnect instead of sleeping or assuming a particular delay.
 
