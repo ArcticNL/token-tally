@@ -1,9 +1,9 @@
 """Versioned hook payloads. The HMAC signing version remains v1."""
 import math
 
-from . import claude
+from . import claude, codex
 
-CAPABILITIES = {"payload_versions": [1, 2], "providers": ["claude"], "signing_versions": ["v1"]}
+CAPABILITIES = {"payload_versions": [1, 2], "providers": ["claude", "codex"], "signing_versions": ["v1"]}
 
 
 class PayloadError(ValueError):
@@ -34,6 +34,7 @@ def decode(data, now):
         return claude.hook_events(data, now=now)
     if data.get("provider") not in CAPABILITIES["providers"]:
         raise PayloadError("Unsupported provider", 422)
+    adapter = claude if data["provider"] == "claude" else codex
     if not identifier(data.get("client_id")) or not identifier(data.get("event_id")):
         raise PayloadError("v2 requires valid client_id and event_id")
     stamp = data.get("observed_at")
@@ -43,12 +44,15 @@ def decode(data, now):
     if not isinstance(event, dict) or not identifier(event.get("session_id")):
         raise PayloadError("v2 requires an event with a valid session_id")
     name = event.get("hook_event_name")
-    if not isinstance(name, str) or name not in {*claude.HOOK_KINDS, "Notification"}:
+    names = set(adapter.HOOK_KINDS)
+    if adapter is claude:
+        names.add("Notification")
+    if not isinstance(name, str) or name not in names:
         raise PayloadError("Unsupported hook event", 422)
-    for field in ("agent_id", "turn_id", "tool_use_id"):
+    for field in ("agent_id", "turn_id", "tool_use_id", "parent_agent_id", "parent_session_id"):
         if field in event and not identifier(event[field]):
             raise PayloadError("Invalid native event identity")
-    observations = claude.hook_events(event, data["client_id"], data["event_id"], now=now)
+    observations = adapter.hook_events(event, data["client_id"], data["event_id"], now=now)
     # Notification types that carry no useful state are valid, intentionally ignored.
     if not observations and name != "Notification":
         raise PayloadError("Invalid provider event")

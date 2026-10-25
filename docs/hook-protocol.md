@@ -10,6 +10,7 @@ unsupported versions/providers receive 422; malformed v2 envelopes receive 400.
 A v2 body larger than 64 KiB receives 413. Origin, Sec-Fetch-Site, content type,
 Host, key and replay restrictions still apply.
 
+V2 supports the explicit `claude` and `codex` providers. Codex has no v1 downgrade.
 A v2 envelope looks like this (the values below are synthetic):
 
 ```json
@@ -70,6 +71,8 @@ The server's state adapters discard raw content even from v1 inputs.
 4. With an older/unavailable capability endpoint, new Claude installations remain
    v1. An existing v2 installation preserves both its version and its installed
    relay bytes; it refuses an unverified replacement when that relay is missing.
+   Selected v2 source must contain a literal support marker, inspected without
+   executing downloaded code; this also prevents stale local fallback code.
    Explicit incompatible capabilities stop the update before file writes.
 
 Local transcript binding follows the effective version: v1 uses the saved legacy

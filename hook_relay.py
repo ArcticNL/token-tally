@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Forward one Claude Code hook event to the Token & Tally office.
+"""Forward one explicitly selected provider hook to the Token & Tally office.
 
 Claude Code pipes the hook's JSON to stdin. This trims it to what the office
 needs (never file contents or full commands), posts it to the server, and
-always exits 0 with no output, so it never blocks or answers a hook.
+always exits 0. Claude stays silent; Codex emits only an empty JSON object.
+Neither output controls, approves or answers a provider action.
 
 Settings come from relay.json next to this file, e.g.
     {"urls": ["http://<office-address>:8377/hook", "http://<tailscale-address>:8377/hook"],
@@ -31,6 +32,7 @@ from urllib.parse import urlparse
 
 TAILNET = ipaddress.ip_network("100.64.0.0/10")  # the range Tailscale gives its devices
 SUPPORTED_PAYLOAD_VERSIONS = (1, 2)  # installer reads this literal without executing relay code
+SUPPORTED_PROVIDERS = ("claude", "codex")
 MAX_BYTES = 64 * 1024
 DELIVERY_BUDGET = 0.5
 ATTEMPT_TIMEOUT = 0.2
@@ -57,7 +59,7 @@ def trim(event):
 
 
 def sanitize_v2(event, provider="claude"):
-    """Return only metadata allowed in a v2 Claude event, without mutating input.
+    """Return only metadata allowed for the explicitly selected v2 provider.
 
     This is independent of the legacy ``trim`` policy. Required identity fields
     are rejected when invalid, as are supplied native identities. Missing native
@@ -66,7 +68,7 @@ def sanitize_v2(event, provider="claude"):
     truncated value is the display-only project basename (at most 80 characters).
     No prompt, command, patch, tool input/result, message or raw path is returned.
     """
-    if not isinstance(provider, str) or provider != "claude":
+    if not isinstance(provider, str) or provider not in SUPPORTED_PROVIDERS:
         raise ValueError("unsupported v2 provider")
     if not isinstance(event, dict):
         raise ValueError("hook event must be an object")
@@ -80,9 +82,12 @@ def sanitize_v2(event, provider="claude"):
         "PostToolUseFailure", "PermissionRequest", "Notification", "Stop",
         "SubagentStart", "SubagentStop", "SessionEnd",
     }
+    if provider == "codex":
+        events -= {"PostToolUseFailure", "Notification"}
+        events |= {"Interrupt", "PreCompact", "PostCompact"}
     name, session = event.get("hook_event_name"), event.get("session_id")
     if not isinstance(name, str) or name not in events:
-        raise ValueError("unsupported Claude hook event")
+        raise ValueError("unsupported hook event for provider")
     if not valid_text(session):
         raise ValueError("invalid hook session identity")
     out = {"hook_event_name": name, "session_id": session}
@@ -105,6 +110,13 @@ def sanitize_v2(event, provider="claude"):
     notification = event.get("notification_type")
     if isinstance(notification, str) and notification in {"permission_prompt", "idle_prompt"}:
         out["notification_type"] = notification
+    if provider == "codex":
+        for field, allowed in (("source", {"startup", "resume", "clear", "compact", "fork"}),
+                               ("trigger", {"manual", "auto"})):
+            if field in event:
+                if not isinstance(event[field], str) or event[field] not in allowed:
+                    raise ValueError("invalid provider event metadata")
+                out[field] = event[field]
 
     cwd = event.get("cwd")
     if isinstance(cwd, str):
@@ -129,7 +141,8 @@ def load_config():
     if not isinstance(cfg, dict):
         raise ValueError("relay configuration must be an object")
     version, provider = cfg.get("payload_version", 1), cfg.get("provider", "claude")
-    if type(version) is not int or version not in (1, 2) or provider != "claude":
+    if (type(version) is not int or version not in (1, 2) or provider not in SUPPORTED_PROVIDERS
+            or (provider == "codex" and version != 2)):
         raise ValueError("unsupported relay payload version or provider")
     client = cfg.get("client_id")
     if version == 2 and (not isinstance(client, str) or not client.strip() or len(client) > 256
@@ -251,8 +264,12 @@ def _read_input():
     return b"".join(chunks)
 
 
-def _deliver_once(deadline):
+def _deliver_once(deadline, selected=None):
     cfg = load_config()
+    if selected is not None:
+        if selected[0] is not None and selected[0] != cfg["provider"]:
+            return  # explicit provider never falls through to another provider's config
+        selected[0] = cfg["provider"]
     raw = _read_input()
     if len(raw) > MAX_BYTES:
         return
@@ -273,11 +290,52 @@ def _deliver_once(deadline):
         _post(cfg["urls"], cfg["key"], body, deadline)
 
 
-def main():
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    # Determine the neutral output contract before config/stdin/network work.
+    # The installer always supplies this flag for Codex, including on failures.
+    selected = ["codex" if "--provider=codex" in args or any(
+        args[i:i + 2] == ["--provider", "codex"] for i in range(len(args))) else None]
     try:
-        _bounded_call(_deliver_once, DELIVERY_BUDGET)
+        provider, budget = None, DELIVERY_BUDGET
+        index = 0
+        while index < len(args):
+            flag = args[index]
+            if flag.startswith("--provider="):
+                value = flag.split("=", 1)[1]
+            elif flag in ("--provider", "--deadline-ms") and index + 1 < len(args):
+                index += 1
+                value = args[index]
+            else:
+                raise ValueError("unsupported relay option")
+            if flag == "--deadline-ms":
+                milliseconds = int(value)
+                if not 1 <= milliseconds <= 500:
+                    raise ValueError("invalid relay deadline")
+                budget = milliseconds / 1000.0
+            else:
+                if provider is not None or value not in SUPPORTED_PROVIDERS:
+                    raise ValueError("invalid relay provider")
+                provider = value
+            index += 1
+        if provider is not None:
+            selected[0] = provider
+        _bounded_call(lambda deadline: _deliver_once(deadline, selected), budget)
     except Exception:
         pass
+    if selected[0] == "codex":
+        try:
+            try:
+                descriptor = sys.stdout.fileno()
+            except (AttributeError, OSError, ValueError):
+                sys.stdout.write("{}\n")  # in-memory streams used by embedded callers
+                sys.stdout.flush()
+            else:
+                # No buffered bytes remain to fail a second flush during
+                # interpreter shutdown after a consumer closes its pipe.
+                os.write(descriptor, b"{}\n")
+        except (AttributeError, OSError, ValueError):
+            pass
     return 0
 
 

@@ -152,6 +152,44 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(self.agents()[0]['client_id'], 'standalone-client')
         self.assertEqual(self.agents()[0]['machine'], 'Fixture')
 
+    def test_codex_native_tools_remain_unattributed_and_isolated_from_claude(self):
+        self.assertEqual(self.post(self.envelope()), 204)
+        data = self.envelope(); data['provider'] = 'codex'
+        self.assertEqual(self.post(data), 204)
+        actors = self.agents()
+        self.assertEqual(len(actors), 2)
+        codex = next(a for a in actors if a['provider'] == 'codex')
+        self.assertEqual(codex['identity_quality'], 'unattributed')
+        self.assertIsNone(codex['agent_id'])
+        self.assertIsNone(codex['parent'])
+        self.assertEqual(codex['tools'], 1)
+
+    def test_codex_requires_v2_and_its_own_event_vocabulary(self):
+        data = self.envelope(); data.update(provider='codex', payload_version=1)
+        self.assertEqual(self.post(data), 422)
+        data['payload_version'] = 2
+        data['event']['hook_event_name'] = 'Notification'
+        self.assertEqual(self.post(data), 422)
+        self.assertEqual(self.agents(), [])
+
+    def test_codex_session_end_removes_only_its_scoped_actors(self):
+        self.post(self.envelope())
+        data = self.envelope(); data['provider'] = 'codex'
+        self.post(data)
+        data = self.envelope('SessionEnd'); data['provider'] = 'codex'
+        self.assertEqual(self.post(data), 204)
+        self.assertEqual([a['provider'] for a in self.agents()], ['claude'])
+
+    def test_codex_explicit_child_does_not_claim_unknown_tools(self):
+        data = self.envelope('SubagentStart', agent_id='child'); data['provider'] = 'codex'
+        self.assertEqual(self.post(data), 204)
+        data = self.envelope(); data['provider'] = 'codex'
+        self.assertEqual(self.post(data), 204)
+        actors = self.agents()
+        self.assertEqual(len(actors), 2)
+        self.assertEqual(next(a for a in actors if a['agent_id'] == 'child')['tools'], 0)
+        self.assertEqual(next(a for a in actors if a['identity_quality'] == 'unattributed')['tools'], 1)
+
 
 if __name__ == '__main__':
     unittest.main()

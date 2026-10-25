@@ -93,7 +93,7 @@ class RelayPrivacyTests(unittest.TestCase):
                     relay.sanitize_v2(value)
 
     def test_unsupported_provider_is_rejected(self):
-        for provider in ("codex", "Claude", "", None, [], DoNotStringify()):
+        for provider in ("unsupported", "Claude", "", None, [], DoNotStringify()):
             with self.subTest(provider_type=type(provider).__name__):
                 with self.assertRaises(ValueError):
                     relay.sanitize_v2(self.event(), provider=provider)

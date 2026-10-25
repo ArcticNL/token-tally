@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Native Codex observations.** Payload v2 accepts Codex hooks through a dedicated
+  metadata-only adapter. Codex relays emit neutral JSON even when delivery fails;
+  SessionEnd supports a 200 ms delivery budget. Missing actor identity remains
+  explicit instead of assigning tools to a guessed worker. Compaction is metadata,
+  stop allows continuation, and tool completion does not imply success. See
+  [Codex integration](docs/codex.md) for coverage and verification limits.
+
 - **Versioned, metadata-only relays.** The office advertises `/capabilities` and
   accepts v2 envelopes alongside signed Claude v1 events. V2 uses persistent
   client IDs and invocation IDs, sends no prompt/command/result text, and bounds

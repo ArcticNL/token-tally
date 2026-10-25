@@ -250,7 +250,7 @@ def run_loop():
 
 def main():
     global HOOK_KEY, NAMES_FILE
-    parser = argparse.ArgumentParser(description="A 1990s office for your Claude Code agents.")
+    parser = argparse.ArgumentParser(description="A 1990s office for your coding agents.")
     parser.add_argument("--port", type=int, default=8377)
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on; 0.0.0.0 for the whole home network")
     parser.add_argument("--allow-host", action="append", default=[], metavar="NAME",

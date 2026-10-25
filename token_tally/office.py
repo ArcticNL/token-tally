@@ -7,7 +7,7 @@ import time
 from collections import deque
 from pathlib import Path
 from . import claude
-from .events import BoundedSeen
+from .events import ActorKey, BoundedSeen
 
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 PROJECTS = CLAUDE_DIR / "projects"
@@ -63,7 +63,7 @@ class Agent:
         self.held, self.hold_until = None, 0.0  # the last tool, kept on show briefly (see public)
 
     def set(self, status, ts, task="", tool="", detail="", guess=False):
-        if status != self.status:
+        if status != self.status or not self.since:
             self.since = ts
         self.status, self.task, self.tool, self.detail, self.guess = status, task, tool, detail, guess
         if status == "working":
@@ -228,6 +228,55 @@ class Office:
         self.serial += 1
         return e.turn_id, ("anonymous", self.serial)
 
+    def codex_boundary(self, e, now, previous_turn=None):
+        """Close session/turn evidence without assigning unknown tools to root.
+
+        Native Codex root boundaries share session and turn IDs with unassigned
+        activity. Named children remain independent. Root-scoped tombstones also
+        cover a boundary delivered before the first unknown-actor event, without
+        manufacturing an actor record for that boundary.
+        """
+        if (e.source != "hook" or e.actor.provider != "codex" or not e.turn_id
+                or e.actor.agent_id is not None or e.actor.unattributed):
+            return
+        unknown = ActorKey.unknown(*self.scope(e.actor))
+        a = self.agents.get(unknown.public_id)
+        if e.kind in ("stop", "interrupt"):
+            tag = "codex_interrupted_turn" if e.kind == "interrupt" else "codex_stopped_turn"
+            self.remember(tag, e.actor, e.turn_id, now)
+            if a is not None:
+                self.close_calls(a, [key for key in (*a.pending, *a.waits) if key[0] == e.turn_id], now)
+                if a.current_turn == e.turn_id:
+                    a.source = e.source
+                    a.set("idle", now)
+        elif e.kind == "prompt":
+            self.seen.discard(("codex_stopped_turn", e.actor, e.turn_id))
+            if previous_turn and previous_turn != e.turn_id:
+                self.remember("codex_retired_turn", e.actor, previous_turn, now)
+            if a is None:
+                return
+            if previous_turn and previous_turn != e.turn_id:
+                self.remember("retired_turn", unknown, previous_turn, now)
+                self.close_calls(a, [key for key in (*a.pending, *a.waits) if key[0] == previous_turn], now)
+                if a.current_turn == previous_turn:
+                    a.current_turn = e.turn_id
+            # A prior uncorrelated permission ended at the boundary; a new
+            # accepted prompt can permit another such wait in the same turn.
+            self.seen.discard(("end", unknown, (e.turn_id, None)))
+            if a.current_turn == e.turn_id:
+                a.source = e.source
+                a.refresh(now, "idle")
+
+    def codex_turn_boundary(self, e, turn, now):
+        """Return known cancellation/retirement and Stop for unknown activity."""
+        if (e.source != "hook" or e.actor.provider != "codex"
+                or not e.actor.unattributed or not turn):
+            return False, False
+        root = ActorKey(*self.scope(e.actor))
+        ended = (self.known("codex_interrupted_turn", root, turn, now)
+                 or self.known("codex_retired_turn", root, turn, now))
+        return ended, self.known("codex_stopped_turn", root, turn, now)
+
     def apply(self, e):
         now = time.time()  # local retention/liveness; provider timestamps never order events
         with self.lock:
@@ -248,6 +297,11 @@ class Office:
                         del self.agents[aid]
                 self.seen.add(closed, now, scope=scope)
                 return
+            turn_ended, turn_stopped = self.codex_turn_boundary(e, e.turn_id, now)
+            if e.kind in ("tool_start", "wait") and (
+                turn_ended or (turn_stopped and (e.kind == "wait" or not e.tool_call_id))
+            ):
+                return
             a = self.agent(e.actor, e.parent.public_id if e.parent else None, e.is_subagent)
             a.temp = a.temp or e.is_subagent
             if e.parent and e.parent != e.actor:
@@ -259,7 +313,9 @@ class Office:
             a.project = e.project or a.project
             a.machine = e.machine or a.machine
             a.title = e.title or a.title
-            if a.current_turn is None and e.turn_id:
+            # A delayed result still counts, but a known retired/cancelled
+            # Codex turn cannot establish the unknown bucket's active turn.
+            if a.current_turn is None and e.turn_id and not turn_ended:
                 a.current_turn = e.turn_id
             current = e.turn_id == a.current_turn
             # Untagged legacy events cannot be ordered against native turns.
@@ -272,6 +328,7 @@ class Office:
                     a.set("thinking" if a.temp else "idle", now)
                 return  # compaction/start notifications never reset active work
             if e.kind == "prompt":
+                previous_turn = a.current_turn
                 if e.turn_id and self.known("retired_turn", e.actor, e.turn_id, now):
                     return
                 # Hook+transcript without native correlation is ambiguous. A
@@ -292,6 +349,7 @@ class Office:
                 a.source = e.source
                 a.log.append({"t": now, "text": "New assignment"})
                 a.refresh(now)
+                self.codex_boundary(e, now, previous_turn=previous_turn)
                 return
             if e.kind in ("tool_start", "tool_end", "wait"):
                 pending_before = set(a.pending)
@@ -302,25 +360,32 @@ class Office:
                 current = key[0] == a.current_turn
                 ended = self.known("end", e.actor, key, now)
                 retired = bool(key[0] and self.known("retired_turn", e.actor, key[0], now))
+                turn_ended, turn_stopped = self.codex_turn_boundary(e, key[0], now)
                 if e.kind == "tool_start" or (e.kind == "tool_end" and
                                              (e.tool_call_id or key in a.pending)):
                     if self.remember("tool", e.actor, key, now):
                         a.tools += 1
                         a.log.append({"t": now, "text": (e.tool_name or "Tool") + (" " + e.detail if e.detail else "")})
                 if e.kind == "tool_start":
-                    if ended or retired:
+                    if ended or retired or turn_ended:
                         return
                     if key in a.pending:
                         if key not in pending_before and current:
                             a.source = e.source
                             a.refresh(now)
                         return
+                    if turn_stopped and e.tool_call_id:
+                        # A new native call is continuation evidence. An old
+                        # ended call never clears the stopped-turn marker.
+                        root = ActorKey(*self.scope(e.actor))
+                        self.seen.discard(("codex_stopped_turn", root, key[0]))
+                        self.seen.discard(("end", e.actor, (key[0], None)))
                     value = (e.tool_name, task_for(e.tool_name), e.detail, now)
                     a.pending[key] = value
                     if e.tool_name in NEEDS_YOU:
                         a.waits[key] = (value[0], value[1], "Has a question for you", now)
                 elif e.kind == "wait":
-                    if ended or retired:
+                    if ended or retired or turn_ended or turn_stopped:
                         return
                     a.waits[key] = (e.tool_name, task_for(e.tool_name) if e.tool_name else "", e.detail, now)
                 else:
@@ -331,7 +396,13 @@ class Office:
                         a.limited = True
                 if current:
                     a.source = e.source
-                    a.refresh(now)
+                    if e.kind == "tool_end" and (turn_ended or turn_stopped):
+                        a.set("idle", now)
+                    else:
+                        a.refresh(now)
+                elif a.current_turn is None and e.kind == "tool_end" and turn_ended:
+                    a.source = e.source
+                    a.refresh(now, "idle")
             elif e.kind in ("stop", "interrupt"):
                 if e.source == "transcript" and e.turn_id is None and (a.pending or a.waits):
                     return  # no causal link from a historical line to these live calls
@@ -339,6 +410,7 @@ class Office:
                 if current:
                     a.source = e.source
                     a.set("idle", now)
+                self.codex_boundary(e, now)
                 # A Stop is an observation, not proof that this turn cannot
                 # continue. New calls in the same native turn remain valid.
             elif current and e.kind in ("thinking", "reply"):

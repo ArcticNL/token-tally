@@ -19,7 +19,7 @@ Nothing in the office can control Claude. Data flows one way, from Claude Code t
 1. **Hooks (used on the Pi).** Claude Code runs `hook_relay.py` for every hook event. The relay posts a trimmed copy to `POST /hook`, signed with the office key (an HMAC; the key itself never leaves the PC), trying Tailscale addresses first. The Pi can't see any PC's files, so hooks are the only source there.
 2. **Transcripts (local runs).** When the server runs on the same computer as Claude Code, it also tails the JSONL transcripts in `~/.claude/projects/*/*.jsonl` and `*/*/subagents/*.jsonl`. That way it works with no hooks installed at all. Equivalent records in moved files share an event ID; file modification time is not causal ordering.
 
-Both adapters emit `Event` records into the same serialized `Office.apply()` reducer. Local transcripts bind only to the client ID in this installation’s `token-tally/relay.json` (or its legacy machine label). Without that file they use a separate `local-transcript` identity. `--local-client-id` can explicitly bind them; remote clients are never guessed from matching session IDs.
+The Claude and Codex adapters emit `Event` records into the same serialized `Office.apply()` reducer. Local transcripts bind only to the client ID in this installation’s `token-tally/relay.json` (or its legacy machine label). Without that file they use a separate `local-transcript` identity. `--local-client-id` can explicitly bind them; remote clients are never guessed from matching session IDs.
 
 ### Hook events used
 
@@ -41,7 +41,8 @@ Unknown events and posts without a `session_id` are ignored. The installer uses 
 `server.py` retains the CLI, HTTP routes, request signing checks and SSE framing.
 `token_tally/office.py` contains `Agent`, `Office`, the reducer and transcript tailing.
 `events.py` defines canonical identities and bounded deduplication; `claude.py`
-validates and translates hooks and transcript records. The office receives its transcript directory explicitly, which
+validates Claude hooks and transcripts, while `codex.py` handles native Codex
+hooks without a transcript parser. See [Codex coverage](codex.md). The office receives its transcript directory explicitly, which
 also keeps isolated tests independent of the user's configuration.
 
 Each agent has `status` (`thinking`, `working`, `replying`, `waiting`, `idle`), a `task` category, the `tool` and a short `detail` (a file basename when available; no command, query, prompt or result body). It also keeps a `pending` map of open tool calls, a `log` of the last 10 actions, and the `assignment`, `project`, `cwd` and `machine`.
