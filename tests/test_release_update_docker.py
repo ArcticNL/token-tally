@@ -66,7 +66,6 @@ def exercise(base):
             for index, healthy in enumerate((True, False)):
                 version, digit = "v1.0." + str(index), ("a", "b")[index]
                 image = name + ":" + str(index)
-                images.append(image)
                 identity = {"schema": 1, "version": version, "revision": digit * 40}
                 (directory / "build-info.json").write_text(json.dumps(identity))
                 (directory / "Dockerfile").write_text(
@@ -74,7 +73,8 @@ def exercise(base):
                     + 'LABEL org.opencontainers.image.version="' + version + '" org.opencontainers.image.revision="' + digit * 40 + '"\n'
                     + "USER 10001:10001\nHEALTHCHECK --interval=1s --timeout=2s --start-period=1s --retries=2 CMD "
                     + ('["python","-c","import urllib.request; urllib.request.urlopen(\'http://127.0.0.1:8377/state\',timeout=1)"]' if healthy else '["python","-c","raise SystemExit(1)"]') + "\n")
-                run(["docker", "build", "--quiet", "-t", image, str(directory)])
+                run(["docker", "build", "--platform", config["platform"], "--quiet", "-t", image, str(directory)])
+                images.append(image)
                 descriptor = {"schema": 1, "channel": "stable", "version": version, "source_sha": digit * 40,
                               "image": "ghcr.io/example/office", "digest": "sha256:" + digit * 64,
                               "platforms": {"linux/amd64": "sha256:" + str(index + 1) * 64,
