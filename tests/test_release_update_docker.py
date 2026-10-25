@@ -1,5 +1,6 @@
 """Real Docker activation/rollback with fixture release metadata; no registry writes."""
 import argparse
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -41,6 +42,33 @@ def hashes(updater, snapshot):
     cid = updater.dc(snapshot, "ps", "-q", "office")
     code = "import hashlib,json; from pathlib import Path; print(json.dumps([hashlib.sha256(Path('/data/'+n).read_bytes()).hexdigest() for n in ('hook.key','names.txt')]))"
     return updater.docker("exec", cid, "python", "-c", code)
+
+
+def check_environment_guard(updater, snapshot, descriptor):
+    before = hashes(updater, snapshot)
+    modified = copy.deepcopy(snapshot)
+    modified["launch"]["services"]["office"]["environment"]["OFFICE_DATA"] = "/data/subdir"
+    updater.dc(modified, "up", "-d", "--no-build", "--pull", "never", "office")
+    # Verify against the actual altered environment to await a healthy fixture.
+    updater.verify(modified)
+    cid = updater.dc(modified, "ps", "-q", "office")
+    key_hash = "import hashlib; from pathlib import Path; print(hashlib.sha256(Path('/data/subdir/hook.key').read_bytes()).hexdigest())"
+    nested_key = updater.docker("exec", cid, "python", "-c", key_hash)
+    with patch.object(module, "fetch_release", return_value=descriptor):
+        try:
+            updater.bootstrap(descriptor["version"])
+        except module.DeployError as error:
+            assert "environment mismatch" in str(error), "unexpected bootstrap rejection"
+        else:
+            raise AssertionError("bootstrap accepted an unrecorded OFFICE_DATA override")
+    assert updater.state["current"] is None and updater.state["pending"] is None
+    assert updater.dc(modified, "ps", "-q", "office") == cid, "rejected bootstrap replaced the container"
+    assert updater.docker("exec", cid, "python", "-c", key_hash) == nested_key
+    assert hashes(updater, modified) == before, "rejected bootstrap changed key/names"
+    updater.dc(snapshot, "up", "-d", "--no-build", "--pull", "never", "office")
+    updater.verify(snapshot)
+    assert hashes(updater, snapshot) == before
+    print("PASS real Docker bootstrap refuses unrecorded OFFICE_DATA without changing runtime or data")
 
 
 def exercise(base):
@@ -90,6 +118,7 @@ def exercise(base):
             updater.verify(old)
             cid = updater.dc(old, "ps", "-q", "office")
             updater.docker("exec", cid, "python", "-c", "from pathlib import Path; Path('/data/names.txt').write_text('Manager: Fixture Manager\\nFixture Worker\\n')")
+            check_environment_guard(updater, old, data[0])
             before = hashes(updater, old)
             with patch.object(module, "fetch_release", return_value=data[0]):
                 updater.bootstrap("v1.0.0")

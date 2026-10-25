@@ -368,5 +368,83 @@ class UpdateTests(unittest.TestCase):
             module.fetch_release("example/office")
 
 
+class RuntimeVerificationTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="tt-release-runtime-")
+        self.addCleanup(temporary.cleanup)
+        self.path = Path(temporary.name) / "office-policy.json"
+        config = json.loads((ROOT / "pi/office-policy.example.json").read_text())
+        config.update(mode="manual", repository="example/office")
+        self.path.write_text(json.dumps(config))
+        self.updater = module.Updater(self.path)
+        image_id = "sha256:" + "a" * 64
+        self.snapshot = {"release": release(), "image_id": image_id,
+                         "launch": self.updater.launch(image_id), "project": config["project"],
+                         "compose_hash": self.updater.compose_hash}
+        self.image = {"Config": {"Env": ["PATH=/usr/local/bin:/usr/bin", "PYTHONUNBUFFERED=1"]}}
+        service = self.snapshot["launch"]["services"]["office"]
+        port = service["ports"][0]
+        self.container = {
+            "Image": image_id, "State": {"Running": True, "Health": {"Status": "healthy"}},
+            "Config": {"User": service["user"], "Env": self.image["Config"]["Env"] +
+                       [key + "=" + value for key, value in service["environment"].items()]},
+            "Mounts": [{"Destination": "/data", "Type": "volume", "Name": config["data"]["source"], "RW": True},
+                       {"Destination": "/tmp", "Type": "tmpfs"}],
+            "HostConfig": {"ReadonlyRootfs": True, "Init": True, "CapDrop": ["ALL"],
+                           "CapAdd": [], "Privileged": False, "SecurityOpt": ["no-new-privileges:true"],
+                           "PortBindings": {"8377/tcp": [{"HostIp": port["host_ip"], "HostPort": port["published"]}]}},
+        }
+
+    def docker(self, *args, **kwargs):
+        if args[:2] == ("image", "inspect"):
+            return json.dumps([self.image])
+        if args[0] == "inspect":
+            return json.dumps([self.container])
+        if args[0] == "exec":
+            data = self.snapshot["release"]
+            return json.dumps({"schema": 1, "version": data["version"], "revision": data["source_sha"]})
+        self.fail("unexpected Docker command: " + str(args))
+
+    def test_image_defaults_and_policy_environment_are_accepted(self):
+        with patch.object(self.updater, "docker", side_effect=self.docker), \
+             patch.object(self.updater, "dc", return_value="fixture"):
+            self.updater.verify(self.snapshot)
+
+    def test_bootstrap_and_update_reject_environment_drift_before_mutation(self):
+        for extra in ("OFFICE_DATA=/data/subdir", "OFFICE_APP=/data", "PYTHONPATH=/data"):
+            with self.subTest(extra=extra):
+                self.container["Config"]["Env"].append(extra)
+                with patch.object(self.updater, "docker", side_effect=self.docker), \
+                     patch.object(self.updater, "dc", return_value="fixture") as compose, \
+                     patch.object(module, "fetch_release", return_value=release()), \
+                     patch.object(self.updater, "prepare", return_value=self.snapshot):
+                    with self.assertRaisesRegex(DeployError, "environment mismatch"):
+                        self.updater.bootstrap("v1.0.0")
+                    self.assertFalse(self.updater.state_path.exists())
+                    candidate = copy.deepcopy(self.snapshot)
+                    candidate["release"] = release("v1.0.1", "b")
+                    self.updater.state["current"] = self.snapshot
+                    with patch.object(module, "fetch_release", return_value=candidate["release"]), \
+                         patch.object(self.updater, "prepare", return_value=candidate):
+                        with self.assertRaisesRegex(DeployError, "environment mismatch"):
+                            self.updater.update()
+                    self.assertIsNone(self.updater.state["pending"])
+                    self.assertTrue(all(call.args[1] == "ps" for call in compose.call_args_list))
+                self.container["Config"]["Env"].pop()
+                self.updater.state["current"] = None
+
+    def test_prepare_rejects_image_defaults_that_change_managed_paths(self):
+        data = release()
+        manifest = {"manifests": [{"digest": digest, "platform": dict(zip(("os", "architecture"), name.split("/")))}
+                                  for name, digest in data["platforms"].items()]}
+        for name, value in (("OFFICE_DATA", "/data/subdir"), ("OFFICE_APP", "/data"),
+                            ("OFFICE_LISTEN", "127.0.0.1"), ("OFFICE_PORT", "9000")):
+            self.image["Config"]["Env"].append(name + "=" + value)
+            with self.subTest(name=name), patch.object(self.updater, "docker", side_effect=[json.dumps(manifest), "", json.dumps([self.image])]):
+                with self.assertRaisesRegex(DeployError, "managed runtime paths or listener"):
+                    self.updater.prepare(data)
+            self.image["Config"]["Env"].pop()
+
+
 if __name__ == "__main__":
     unittest.main()

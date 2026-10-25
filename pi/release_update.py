@@ -19,6 +19,8 @@ from deploy import DeployError, atomic_json, deploy_lock, run
 from release_contract import validate, version_tuple, image_reference
 
 HERE = Path(__file__).resolve().parent
+RUNTIME_DEFAULTS = {"OFFICE_APP": "/app", "OFFICE_DATA": "/data",
+                    "OFFICE_LISTEN": "0.0.0.0", "OFFICE_PORT": "8377"}
 
 
 class TransientError(DeployError):
@@ -107,6 +109,14 @@ def load_config(path):
     return data
 
 
+def image_environment(image):
+    """Schema1 uses the image defaults, with only the policy's two overrides."""
+    environment = dict(item.split("=", 1) for item in image.get("Config", {}).get("Env", []) if "=" in item)
+    if any(environment.get(key, value) != value for key, value in RUNTIME_DEFAULTS.items()):
+        raise DeployError("release image changes the managed runtime paths or listener")
+    return environment
+
+
 class Updater:
     def __init__(self, config_path):
         self.config_path = Path(config_path).resolve()
@@ -193,6 +203,7 @@ class Updater:
         reference = data["image"] + "@" + data["platforms"][self.config["platform"]]
         self.retry(key, lambda: self.docker("pull", "--platform", self.config["platform"], reference, network=True))
         image = json.loads(self.docker("image", "inspect", reference))[0]
+        image_environment(image)
         labels = image.get("Config", {}).get("Labels", {})
         if (image.get("Os", "") + "/" + image.get("Architecture", "") != self.config["platform"] or
                 labels.get("org.opencontainers.image.version") != data["version"] or
@@ -243,6 +254,9 @@ class Updater:
         return stdout.strip()
 
     def verify(self, snapshot):
+        image = json.loads(self.docker("image", "inspect", snapshot["image_id"], timeout=10))[0]
+        expected_environment = image_environment(image)
+        expected_environment.update(snapshot["launch"]["services"]["office"]["environment"])
         cid = self.dc(snapshot, "ps", "-q", "office")
         if not cid or "\n" in cid:
             raise DeployError("expected exactly one release container")
@@ -269,7 +283,7 @@ class Updater:
             if host.get("PortBindings") != {"8377/tcp": [{"HostIp": port["host_ip"], "HostPort": port["published"]}]}:
                 raise DeployError("release container port mismatch")
             environment = dict(item.split("=", 1) for item in container["Config"].get("Env", []) if "=" in item)
-            if any(environment.get(key) != value for key, value in service["environment"].items()):
+            if environment != expected_environment:
                 raise DeployError("release container environment mismatch")
             health = state.get("Health", {}).get("Status")
             if health in (None, "unhealthy"):

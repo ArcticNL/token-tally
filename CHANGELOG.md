@@ -15,6 +15,13 @@
   stays partial until an exact call match or applicable prompt boundary resolves
   it; completing that permission reveals any other pending native tool.
 
+- **Preserve the verified release environment.** Managed bootstrap and updates
+  reject runtime environment overrides that would disappear on replacement,
+  including a different `OFFICE_DATA` directory. Images must retain the managed
+  schema1 paths and listener. Update the trusted host updater separately and
+  migrate any custom key/names location before rebootstrap; see the
+  [release update instructions](docs/release-updates.md).
+
 - **Fresh snapshots for slow connections.** Live subscribers retain the newest
   full snapshot rather than losing it behind an old backlog, including departures.
 

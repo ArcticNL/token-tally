@@ -85,6 +85,13 @@ Bootstrap checks the immutable asset and source tag, both platform manifest
 digests, selected platform, image labels/config ID, container health, `/version`,
 security settings, port, environment and exact data mount. It does **not** start
 or replace a container. A legacy/dev image cannot become a rollback baseline.
+The environment must match the image defaults plus the policy's allow-host and
+extra-URL settings. Extra runtime overrides, including `OFFICE_DATA`, `OFFICE_APP`
+and `PYTHONPATH`, are refused rather than silently discarded during an update or
+rollback. Images must retain the schema1 `/app`, `/data`, `0.0.0.0:8377` defaults.
+For an existing installation with overrides, pause updates and manually migrate
+the key and names into the approved `/data` location before rebootstrap. Never
+remove the override and allow a replacement container to generate a different key.
 Once bootstrap succeeds, inspect `office-release-state.json`, switch mode to
 `release` and enable `token-tally-release-pull.timer` if automatic updates are
 wanted. Leave mode `manual` for operator-triggered updates.
@@ -137,6 +144,11 @@ quarantine in place. Prefer a new corrected release digest to retrying a known b
 one. A manual policy/host-tool upgrade must retain the original Compose file until
 pending recovery is resolved; its hash is part of the saved runtime. Rebootstrap
 a manually verified release after intentional project/configuration changes.
+
+Updater fixes require an operator to replace the trusted `office-host/release_update.py`
+copy while update routes are paused and the shared deployment lock is held; a Git
+checkout update does not replace the installed host tool. Preserve policy, state
+and the original Compose file, and resolve pending recovery before upgrading it.
 
 ## Checks and limits
 
