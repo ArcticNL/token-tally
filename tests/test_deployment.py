@@ -131,6 +131,8 @@ class DeploymentTests(unittest.TestCase):
 
     def test_docker_failures_keep_live_and_retry(self):
         self.attempt()
+        # A failed runtime leaves a newer detached checkout than refs/office/live.
+        (self.source / "compose.yaml").write_text("services: {}\n# candidate change\n")
         candidate = self.update()
         for mode in ("buildfail", "upfail", "unhealthy", "starting", "exited", "wrongimage"):
             with self.subTest(mode=mode):
@@ -142,6 +144,69 @@ class DeploymentTests(unittest.TestCase):
         (self.fake / "mode").write_text("healthy")
         self.assertEqual(self.attempt(candidate)[0].returncode, 0)
         self.assertEqual(self.live(), candidate)
+
+    def legacy_checkout(self):
+        self.command("git", "--git-dir=" + str(self.repo), "--work-tree=" + str(self.deploy),
+                     "checkout", "-q", "-f", "main")
+        self.command("git", "--git-dir=" + str(self.repo), "update-ref", "refs/office/live", self.a)
+
+    def legacy_candidate(self, source):
+        (self.source / "compose.yaml").write_text("services: {}\n# tracked upgrade\n")
+        candidate = self.commit("legacy-upgrade")
+        target = "main" if source == "push" else "main:refs/remotes/origin/main"
+        self.command("git", "push", "--quiet", str(self.repo), target)
+        return candidate
+
+    def check_legacy_upgrade(self, source):
+        self.legacy_checkout()
+        candidate = self.legacy_candidate(source)
+        self.assertEqual(self.command("git", "--git-dir=" + str(self.repo),
+                                      "symbolic-ref", "HEAD").stdout.strip(), "refs/heads/main")
+        result, receipt = self.attempt(candidate, source)
+        self.assertEqual(result.returncode, 0, receipt)
+        self.assertEqual(receipt["status"], "healthy")
+        self.assertEqual(self.live(), candidate)
+        self.assertEqual((self.deploy / "compose.yaml").read_bytes(),
+                         (self.source / "compose.yaml").read_bytes())
+        self.assertNotEqual(self.command("git", "--git-dir=" + str(self.repo),
+                                        "symbolic-ref", "-q", "HEAD", check=False).returncode, 0)
+
+    def test_legacy_symbolic_head_upgrade_after_push(self):
+        self.check_legacy_upgrade("push")
+
+    def test_legacy_symbolic_head_upgrade_from_github(self):
+        self.check_legacy_upgrade("github")
+
+    def test_legacy_local_edits_hidden_from_index_are_preserved(self):
+        self.legacy_checkout()
+        compose = self.deploy / "compose.yaml"
+        edited = compose.read_text() + "# local installation setting\n"
+        compose.write_text(edited)
+        self.command("git", "--git-dir=" + str(self.repo), "--work-tree=" + str(self.deploy),
+                     "update-index", "--assume-unchanged", "compose.yaml")
+        candidate = self.legacy_candidate("push")
+        result, receipt = self.attempt(candidate)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("migration to compose.override.yaml", receipt["error"])
+        self.assertEqual(compose.read_text(), edited)
+        self.assertEqual(self.live(), self.a)
+        self.assertFalse((self.fake / "calls").exists())
+
+    def test_legacy_compose_symlink_is_preserved(self):
+        self.legacy_checkout()
+        compose = self.deploy / "compose.yaml"
+        target = self.base / "private-compose.yaml"
+        target.write_bytes(compose.read_bytes())
+        compose.unlink()
+        compose.symlink_to(target)
+        candidate = self.legacy_candidate("push")
+        result, receipt = self.attempt(candidate)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("migration to compose.override.yaml", receipt["error"])
+        self.assertTrue(compose.is_symlink())
+        self.assertEqual(target.read_text(), "services: {}\n")
+        self.assertEqual(self.live(), self.a)
+        self.assertFalse((self.fake / "calls").exists())
 
     def test_modified_compose_is_preserved_until_local_override_migration(self):
         # Existing installations followed the old docs by editing the tracked file.

@@ -183,8 +183,14 @@ def execute(repo, directory, commit, source, deadline):
         raise DeployError("candidate tracks private installation paths")
     compose = directory / "compose.yaml"
     if compose.exists() or compose.is_symlink():
+        # Legacy deploy.sh left HEAD on main and recorded each checkout in live.
+        # main may already have advanced on push (or above for GitHub). Newer
+        # deployments detach HEAD before starting the runtime, so HEAD identifies
+        # their checkout even when runtime failure leaves live on an older commit.
+        symbolic = git(repo, "symbolic-ref", "-q", "HEAD", check=False).returncode == 0
+        checked_out = live if symbolic and live else "HEAD"
         # Compare actual bytes, including edits hidden by assume-unchanged flags.
-        expected = ref(repo, "HEAD:compose.yaml")
+        expected = ref(repo, checked_out + ":compose.yaml")
         if compose.is_symlink() or not compose.is_file() or git(repo, "hash-object", "--no-filters", str(compose)).stdout.strip() != expected:
             raise DeployError("local compose.yaml changes require migration to compose.override.yaml before deployment; checkout left unchanged")
     directory.mkdir(parents=True, exist_ok=True)

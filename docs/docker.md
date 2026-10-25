@@ -100,14 +100,23 @@ restarting anything, so the active configuration and names remain in place.
 Before retrying, pause both legacy update routes and let any running deployment
 finish. Back up the edited Compose file outside the checkout. Move its local
 settings into `compose.override.yaml` as above, preserving any existing override
-settings. Review the tracked changes against the checkout's `HEAD`, then restore
-only `compose.yaml` to that version. For a bare-repository installation, run these
-commands from the office checkout after setting `BARE` to its bare repository:
+settings. Compare against the revision that populated the checkout: older
+installations left `HEAD` attached to `main` and recorded that checkout in
+`refs/office/live`. A failed push may already have moved `main`. Newer deployments
+leave `HEAD` detached; use that revision even if a failed runtime start left
+`refs/office/live` pointing to an older healthy version. For a bare-repository
+installation, run these commands from the office checkout after setting `BARE`
+to its bare repository:
 
 ```sh
-git --git-dir="$BARE" --work-tree="$PWD" diff HEAD -- compose.yaml
+COMPOSE_BASE=HEAD
+if git --git-dir="$BARE" symbolic-ref -q HEAD >/dev/null &&
+   git --git-dir="$BARE" rev-parse --verify refs/office/live >/dev/null 2>&1; then
+    COMPOSE_BASE=refs/office/live
+fi
+git --git-dir="$BARE" --work-tree="$PWD" diff "$COMPOSE_BASE" -- compose.yaml
 # Only after saving all local settings in compose.override.yaml:
-git --git-dir="$BARE" show HEAD:compose.yaml > compose.yaml
+git --git-dir="$BARE" show "$COMPOSE_BASE:compose.yaml" > compose.yaml
 docker compose config
 ```
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Allow clean legacy deployment upgrades.** A push that advances `main` no
+  longer makes an unchanged older Compose file appear locally modified. Legacy
+  symbolic checkouts use their recorded checkout revision; detached checkouts
+  retain retry support after a failed runtime start. Real local edits and
+  symlinks still stop deployment before checkout. Existing edited installations
+  should follow the updated [Compose migration](docs/docker.md#existing-installations-with-an-edited-compose-file).
+
 - **Keep relay fallbacks usable with malformed addresses.** An address that
   cannot be parsed no longer stops delivery to valid configured destinations or
   consumes one of their three attempts. Tailscale priority and the shared delivery

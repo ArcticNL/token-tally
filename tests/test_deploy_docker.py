@@ -49,6 +49,18 @@ def main():
         dc = ["docker", "compose", "--project-directory", str(office), "--env-file", str(office / ".env"),
               "-f", str(office / "compose.yaml"), "-f", str(office / "compose.override.yaml")]
         try:
+            # Old deploy.sh left a symbolic HEAD and recorded the checked-out
+            # commit before runtime startup. A push moves main but not these files.
+            (source / "Dockerfile").write_text("FROM " + args.image + "\n")
+            run("git", "add", ".")
+            run("git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                "commit", "-qm", "legacy checkout")
+            old = run("git", "rev-parse", "HEAD").stdout.strip()
+            run("git", "push", "--quiet", str(bare), "main")
+            run("git", "--git-dir=" + str(bare), "--work-tree=" + str(office),
+                "checkout", "-q", "-f", "main")
+            run("git", "--git-dir=" + str(bare), "update-ref", "refs/office/live", old)
+            (source / "compose.yaml").write_text(compose + "\n# Tracked upgrade from the legacy checkout.\n")
             for healthy in (True, False):
                 health = ("python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8377/state')\""
                           if healthy else "exit 1")
@@ -76,7 +88,7 @@ def main():
                     "from pathlib import Path; print(Path('/data/names.txt').read_text(),end='')").stdout
                 if mounted_names != names:
                     raise AssertionError("deployment lost the private names mount")
-            print("PASS real Docker deployment: healthy commit, unhealthy replacement, preserved live ref/data/names mount")
+            print("PASS real Docker deployment: legacy symbolic-HEAD upgrade, unhealthy replacement, preserved live ref/data/names mount")
         finally:
             run(*dc, "down", "--volumes", "--remove-orphans")
             for commit in commits:
