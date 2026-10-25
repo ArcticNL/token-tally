@@ -69,6 +69,34 @@ and continues after a failed suite. It does not infer success by parsing log tex
 Compilation output and test imports leave no bytecode in the checkout. All fixture
 data is synthetic. The manual server command below still reads your own sessions.
 
+## Python CI
+
+The [Python workflow](../.github/workflows/python.yml) runs the same check command
+for pull requests and pushes to `main`. Its stable check names are:
+
+| Check | Runner | Python |
+| --- | --- | --- |
+| `python-linux` | `ubuntu-24.04` | 3.13 |
+| `python-macos` | `macos-15` (ARM64) | 3.13 |
+| `python-windows` | `windows-2025` | 3.13 |
+| `python-minimum` | `ubuntu-22.04` | 3.9 |
+
+The minor versions are explicit and patch updates are allowed; each job logs its
+actual interpreter version. The 3.9 job runs the complete suite to guard the
+documented compatibility promise. Raising the minimum needs a separate decision
+and documentation update. The job does not imply upstream security support for 3.9.
+
+Jobs have read-only repository permissions, do not persist Git credentials, and
+need no secrets or package installation. Action revisions are pinned to full SHAs.
+A failed matrix job does not cancel the others. The ten-minute timeout is a final
+limit on a disposable hosted runner, not a local forced-kill cleanup guarantee.
+
+Configure these four names as required checks only in a separate authorized
+repository-administration step. Docker and browser workflows own their own names
+and prerequisites. This workflow does not deploy, and does not disable the Pi's
+existing auto-deployment: pause both live update routes before implementation
+merges when the operator has authorized that transition.
+
 ## Run it locally with your own sessions
 
 ```bash
