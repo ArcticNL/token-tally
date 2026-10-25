@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Connect this computer's Claude Code to the Token & Tally office.
+"""Connect this computer's Claude Code or Codex to the Token & Tally office.
 
 Download it from your office (http://<office-address>:8377/kit/install_relay.py)
 and run it on every PC you use Claude Code on:
@@ -40,8 +40,11 @@ EXTRA_URLS = [] if EXTRA_URLS.startswith("__") else EXTRA_URLS.split()
 EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest",
           "Notification", "Stop", "SubagentStart", "SubagentStop", "SessionEnd"]
 TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest"}
+CODEX_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
+                "Stop", "SubagentStart", "SubagentStop", "SessionEnd", "Interrupt", "PreCompact", "PostCompact"]
 
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+CODEX_DIR = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 RELAY_DIR = CLAUDE_DIR / "token-tally"
 SETTINGS = CLAUDE_DIR / "settings.json"
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -103,22 +106,31 @@ def read_capabilities(hook_url):
     return capabilities
 
 
-def select_payload_version(current, capabilities):
+def provider_paths(provider):
+    if provider == "claude":
+        return RELAY_DIR, SETTINGS
+    if provider == "codex":
+        return CODEX_DIR / "token-tally", CODEX_DIR / "hooks.json"
+    sys.exit("Unsupported provider. Nothing changed.")
+
+
+def select_payload_version(current, capabilities, provider="claude"):
     """Upgrade only with evidence; absence of evidence never downgrades v2."""
     if capabilities is None:
+        if provider == "codex" and current != 2:
+            sys.exit("Codex setup needs verified server support for Codex payload v2. Nothing changed.")
         return current
-    compatible = ("claude" in capabilities["providers"] and "v1" in capabilities["signing_versions"])
+    compatible = (provider in capabilities["providers"] and "v1" in capabilities["signing_versions"])
     supported = capabilities["payload_versions"] if compatible else []
     if 2 in supported:
         return 2
-    if current == 1 and 1 in supported:
+    if provider == "claude" and current == 1 and 1 in supported:
         return 1
     sys.exit("The office does not advertise support for this relay protocol. Nothing changed.")
 
 
-def source_supports_payload_version(source, version):
+def source_literal(source, marker):
     """Inspect one literal compatibility marker without executing relay code."""
-    marker = "SUPPORTED_PAYLOAD_VERSIONS"
     try:
         tree = ast.parse(source)
         assignments = [node for node in tree.body if isinstance(node, ast.Assign)
@@ -126,30 +138,53 @@ def source_supports_payload_version(source, version):
         stores = [node for node in ast.walk(tree)
                   if isinstance(node, ast.Name) and node.id == marker and isinstance(node.ctx, ast.Store)]
         if len(assignments) != 1 or len(assignments[0].targets) != 1 or len(stores) != 1:
-            return False
-        versions = ast.literal_eval(assignments[0].value)
-        return (isinstance(versions, (tuple, list))
-                and all(type(value) is int and value > 0 for value in versions) and version in versions)
+            return None
+        return ast.literal_eval(assignments[0].value)
     except (SyntaxError, ValueError, TypeError, RecursionError):
+        return None
+
+
+def source_supports_payload_version(source, version):
+    versions = source_literal(source, "SUPPORTED_PAYLOAD_VERSIONS")
+    return (isinstance(versions, (tuple, list))
+            and all(type(value) is int and value > 0 for value in versions) and version in versions)
+
+
+def source_supports_provider(source, provider):
+    providers = source_literal(source, "SUPPORTED_PROVIDERS")
+    return (isinstance(providers, (tuple, list))
+            and all(isinstance(value, str) and value for value in providers) and provider in providers)
+
+
+def owns_command(command, provider, relay_dir, event=None):
+    """Recognize the exact installed path and only our canonical provider flags."""
+    if not isinstance(command, str):
         return False
-
-
-def is_ours(handler):
-    """Recognize only the two-argument command this installer writes.
-
-    A comment, wrapper, extra argument or another relay location is not ours to
-    remove. Forward slashes are what this installer has always used on Windows.
-    """
-    if handler.get("type") != "command":
-        return False
-    match = re.fullmatch(r'(?:"([^"\r\n]+)"|([^\s"\']+)) "([^"\r\n]+)"', handler.get("command", ""))
+    suffix = r'(?: --provider codex(?: --deadline-ms 200)?)' if provider == "codex" else ""
+    if provider == "codex" and event is not None:
+        suffix = " --provider codex" + (" --deadline-ms 200" if event == "SessionEnd" else "")
+    match = re.fullmatch(r'(?:"([^"\r\n]+)"|([^\s"\']+)) "([^"\r\n]+)"' + suffix, command)
     if not match:
         return False
     executable = (match[1] or match[2]).replace("\\", "/")
     interpreter = executable.rsplit("/", 1)[-1]
     return bool((executable == Path(sys.executable).as_posix()
                  or re.fullmatch(r"(?:pythonw?|pypy)(?:\d+(?:\.\d+)*)?t?(?:\.exe)?", interpreter, re.I))
-                and match[3] == (RELAY_DIR / "hook_relay.py").as_posix())
+                and match[3].replace("\\", "/") == (relay_dir / "hook_relay.py").as_posix())
+
+
+def is_ours(handler, provider="claude", relay_dir=None):
+    """Recognize only handlers whose commands all belong to this installation.
+
+    A comment, wrapper, extra argument or another relay location is not ours to
+    remove, including a foreign Windows command override on an owned command.
+    """
+    if handler.get("type") != "command":
+        return False
+    relay_dir = RELAY_DIR if relay_dir is None else relay_dir
+    commands = [handler.get("command")]
+    commands.extend(handler[field] for field in ("commandWindows", "command_windows") if field in handler)
+    return all(owns_command(command, provider, relay_dir) for command in commands)
 
 
 def load_object(path):
@@ -167,8 +202,9 @@ def load_object(path):
     return data
 
 
-def load_settings():
-    data = load_object(SETTINGS)
+def load_settings(settings=None):
+    settings = SETTINGS if settings is None else settings
+    data = load_object(settings)
     hooks = data.get("hooks", {})
     valid = isinstance(hooks, dict)
     if valid:
@@ -180,24 +216,26 @@ def load_settings():
                 if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
                     valid = False
                     break
-                if any(not isinstance(h, dict) or ("command" in h and not isinstance(h["command"], str))
+                if any(not isinstance(h, dict) or any(field in h and not isinstance(h[field], str)
+                       for field in ("command", "commandWindows", "command_windows"))
                        for h in group["hooks"]):
                     valid = False
                     break
     if not valid:
-        sys.exit(f'"hooks" in {SETTINGS} has an unexpected shape; nothing changed.')
+        sys.exit(f'"hooks" in {settings} has an unexpected shape; nothing changed.')
     return data
 
 
-def load_config():
-    path = RELAY_DIR / "relay.json"
+def load_config(relay_dir=None, provider="claude"):
+    path = (RELAY_DIR if relay_dir is None else relay_dir) / "relay.json"
     cfg = load_object(path)
     if (any(k in cfg and not isinstance(cfg[k], str) for k in ("key", "machine", "url"))
             or ("urls" in cfg and (not isinstance(cfg["urls"], list)
                                   or any(not isinstance(u, str) or not u for u in cfg["urls"])))):
         sys.exit(f"{path} has an unexpected shape; nothing changed.")
     version = cfg.get("payload_version", 1)
-    if type(version) is not int or version not in (1, 2) or cfg.get("provider", "claude") != "claude":
+    if (type(version) is not int or version not in (1, 2) or cfg.get("provider", provider) != provider
+            or (provider == "codex" and "payload_version" in cfg and version != 2)):
         sys.exit(f"{path} has an unsupported provider or payload version; nothing changed.")
     if "client_id" in cfg:
         client = cfg["client_id"]
@@ -211,12 +249,13 @@ def encoded(data):
     return (json.dumps(data, indent=2) + "\n").encode("utf-8")
 
 
-def replace_files(files):
+def replace_files(files, settings=None):
     """Stage all writes, replace settings last, and restore on a write failure.
 
     Atomic replacement protects each file; this is not a transaction across a
     power failure. Existing settings receive a uniquely named recovery copy.
     """
+    settings = SETTINGS if settings is None else settings
     previous, staged, changed = {}, {}, []
     backup = None
     try:
@@ -233,12 +272,12 @@ def replace_files(files):
                 f.write(content)
             if os.name != "nt":
                 os.chmod(staged[path], 0o600 if path.name == "relay.json" else mode)
-        if SETTINGS in previous and previous[SETTINGS][0] is not None:
-            backup = SETTINGS.with_name(f"{SETTINGS.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(4)}")
+        if settings in previous and previous[settings][0] is not None:
+            backup = settings.with_name(f"{settings.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(4)}")
             with backup.open("xb") as f:
-                f.write(previous[SETTINGS][0])
+                f.write(previous[settings][0])
             if os.name != "nt":
-                os.chmod(backup, previous[SETTINGS][1])
+                os.chmod(backup, previous[settings][1])
             print(f"  backed up your settings to {backup.name}")
         for path, tmp in staged.items():
             tmp.replace(path)
@@ -264,15 +303,16 @@ def replace_files(files):
                 tmp.unlink()
 
 
-def save_settings(data):
-    replace_files({SETTINGS: encoded(data)})
+def save_settings(data, settings=None):
+    settings = SETTINGS if settings is None else settings
+    replace_files({settings: encoded(data)}, settings)
 
 
-def strip_ours(hooks):
+def strip_ours(hooks, provider="claude", relay_dir=None):
     for event in list(hooks):
         kept = []
         for group in hooks[event]:
-            remaining = [h for h in group["hooks"] if not is_ours(h)]
+            remaining = [h for h in group["hooks"] if not is_ours(h, provider, relay_dir)]
             if len(remaining) == len(group["hooks"]):
                 kept.append(group)
             elif remaining:
@@ -283,8 +323,19 @@ def strip_ours(hooks):
             del hooks[event]
 
 
+def hook_handler(provider, event, relay):
+    command = f'"{Path(sys.executable).as_posix()}" "{relay.as_posix()}"'
+    synchronous = provider == "codex" and event == "SessionEnd"
+    if provider == "codex":
+        command += " --provider codex" + (" --deadline-ms 200" if synchronous else "")
+    return {"type": "command", "command": command, "async": not synchronous,
+            "timeout": 3 if provider == "codex" else 5}
+
+
 def install(args):
-    data, cfg = load_settings(), load_config()  # preflight before downloads or writes
+    provider = getattr(args, "provider", "claude")
+    relay_dir, settings = provider_paths(provider)
+    data, cfg = load_settings(settings), load_config(relay_dir, provider)  # preflight before downloads or writes
     old_urls = cfg.get("urls") or ([cfg["url"]] if cfg.get("url") else [])
     server = args.server or (old_urls[0].removesuffix("/hook") if old_urls else OFFICE_URL)
     if not server:
@@ -315,8 +366,8 @@ def install(args):
         print(f"  key accepted by {where.rsplit('/hook', 1)[0]}")
 
     capabilities = read_capabilities(where) if status == "ok" else None
-    version = select_payload_version(cfg.get("payload_version", 1), capabilities)
-    relay = RELAY_DIR / "hook_relay.py"
+    version = select_payload_version(cfg.get("payload_version", 1), capabilities, provider)
+    relay = relay_dir / "hook_relay.py"
     if capabilities is None and version == 2:
         if not relay.is_file():
             sys.exit("Cannot verify v2 support and no installed relay is available to preserve. Nothing changed.")
@@ -333,48 +384,132 @@ def install(args):
             relay_src = local.read_bytes()
     if version == 2 and not source_supports_payload_version(relay_src, 2):
         sys.exit("The selected relay source does not declare v2 support. Nothing changed.")
+    if provider == "codex" and not source_supports_provider(relay_src, provider):
+        sys.exit("The selected relay source does not declare Codex support. Nothing changed.")
     name = args.name if args.name is not None else cfg.get("machine", socket.gethostname())
-    cfg.update(urls=urls, key=key, machine=name, provider="claude", payload_version=version)
+    cfg.update(urls=urls, key=key, machine=name, provider=provider, payload_version=version)
     if "client_id" not in cfg:
         cfg["client_id"] = str(uuid.uuid4())
 
-    python = Path(sys.executable).as_posix()
-    command = f'"{python}" "{relay.as_posix()}"'
     hooks = data.setdefault("hooks", {})
-    strip_ours(hooks)
-    for event in EVENTS:
-        group = {"hooks": [{"type": "command", "command": command, "async": True, "timeout": 5}]}
+    strip_ours(hooks, provider, relay_dir)
+    for event in (CODEX_EVENTS if provider == "codex" else EVENTS):
+        group = {"hooks": [hook_handler(provider, event, relay)]}
         if event in TOOL_EVENTS:
             group = {"matcher": "*", **group}
         hooks.setdefault(event, []).append(group)
-    replace_files({relay: relay_src, RELAY_DIR / "relay.json": encoded(cfg), SETTINGS: encoded(data)})
-    print(f"  relay installed in {RELAY_DIR}")
-    print(f"  hooks added to {SETTINGS}")
-    print(f"\nDone. New Claude Code sessions on '{name}' will now walk into the office.")
-    print("Sessions that are already open pick it up once they reload their settings (or start a new one).")
+    replace_files({relay: relay_src, relay_dir / "relay.json": encoded(cfg), settings: encoded(data)}, settings)
+    print(f"  relay installed in {relay_dir}")
+    print(f"  hooks added to {settings}")
+    if provider == "codex":
+        print("\nConfigured for Codex. Review new or changed hooks in Codex /hooks before they can run.")
+        print("Actual hook receipt has not been verified. Existing trust and policy settings were not changed.")
+    else:
+        print(f"\nDone. New Claude Code sessions on '{name}' will now walk into the office.")
+        print("Sessions that are already open pick it up once they reload their settings (or start a new one).")
 
 
-def uninstall(_args):
-    data = load_settings()
+def uninstall(args):
+    provider = getattr(args, "provider", "claude")
+    relay_dir, settings = provider_paths(provider)
+    data = load_settings(settings)
+    config = relay_dir / "relay.json"
+    if config.exists():
+        cfg = load_config(relay_dir, provider)
+        # An omitted provider is the legacy Claude runtime default, even when
+        # this installer was invoked with --provider codex.
+        if cfg.get("provider", "claude") != provider:
+            sys.exit("This relay configuration belongs to another provider. Nothing changed.")
+    preserve_relay = False
+    other = "claude" if provider == "codex" else "codex"
+    other_dir, other_settings = provider_paths(other)
+    if relay_dir.resolve() == other_dir.resolve():
+        other_data = load_settings(other_settings)
+        relay_paths = {(directory / "hook_relay.py").as_posix() for directory in (relay_dir, other_dir)}
+        # Shared configuration roots are possible. Be conservative for foreign
+        # wrappers/platform overrides too: removing a referenced relay is unsafe.
+        preserve_relay = any(any(path in handler.get(field, "").replace("\\", "/") for path in relay_paths)
+                             for groups in other_data.get("hooks", {}).values()
+                             for group in groups for handler in group["hooks"]
+                             for field in ("command", "commandWindows", "command_windows"))
     before = encoded(data)
     if isinstance(data.get("hooks"), dict):
-        strip_ours(data["hooks"])
+        strip_ours(data["hooks"], provider, relay_dir)
         if not data["hooks"]:
             del data["hooks"]
         if encoded(data) != before:
-            save_settings(data)
-        print(f"  removed the office hooks from {SETTINGS}")
-    for name in ("hook_relay.py", "relay.json"):
-        path = RELAY_DIR / name
-        if path.is_file():
-            path.unlink()
-    if RELAY_DIR.is_dir() and not any(RELAY_DIR.iterdir()):
-        RELAY_DIR.rmdir()
-    print("Done. This computer no longer reports to the office.")
+            save_settings(data, settings)
+        print(f"  removed the office hooks from {settings}")
+    if preserve_relay:
+        print(f"Done. Removed recognized {provider} hooks; kept relay files referenced by {other} hooks.")
+    else:
+        for name in ("hook_relay.py", "relay.json"):
+            path = relay_dir / name
+            if path.is_file():
+                path.unlink()
+        if relay_dir.is_dir() and not any(relay_dir.iterdir()):
+            relay_dir.rmdir()
+        print(f"Done. The {provider} relay has been removed.")
+
+
+def check(args):
+    """Read configuration and probe transport without claiming event receipt."""
+    provider = getattr(args, "provider", "claude")
+    relay_dir, settings = provider_paths(provider)
+    data, cfg = load_settings(settings), load_config(relay_dir, provider)
+    events = CODEX_EVENTS if provider == "codex" else EVENTS
+    version = cfg.get("payload_version", 1)
+    relay = relay_dir / "hook_relay.py"
+    installed_events = set()
+    for event, groups in data.get("hooks", {}).items():
+        expected = hook_handler(provider, event, relay)
+        if any(is_ours(handler, provider, relay_dir)
+               and type(handler.get("async")) is bool and handler["async"] == expected["async"]
+               and type(handler.get("timeout")) is int and handler["timeout"] == expected["timeout"]
+               and all(owns_command(handler[field], provider, relay_dir, event)
+                       for field in ("command", "commandWindows", "command_windows") if field in handler)
+               for group in groups if group.get("matcher", "*") in ("*", "") for handler in group["hooks"]):
+            installed_events.add(event)
+    compatible_source = relay.is_file()
+    if compatible_source and (version == 2 or provider == "codex"):
+        source = relay.read_bytes()
+        compatible_source = source_supports_payload_version(source, 2)
+        if provider == "codex":
+            compatible_source = compatible_source and source_supports_provider(source, provider)
+    configured = (bool(cfg) and compatible_source and set(events) <= installed_events
+                  and bool(cfg.get("urls") or cfg.get("url")) and bool(cfg.get("key"))
+                  and cfg.get("provider", "claude") == provider
+                  and (version != 2 or bool(cfg.get("client_id")))
+                  and (provider != "codex" or version == 2))
+    print(f"Provider: {provider}")
+    print(f"Configured: {'yes' if configured else 'incomplete or absent'}")
+    print(f"Payload version: {version if cfg else 'not configured'}")
+    urls = cfg.get("urls") or ([cfg["url"]] if cfg.get("url") else [])
+    if args.server:
+        urls = [args.server.rstrip("/") + "/hook"]
+    if args.extra_url is not None:
+        urls = urls[:1] + [url.rstrip("/") + "/hook" for url in args.extra_url]
+    key = args.key if args.key is not None else cfg.get("key")
+    if urls and key:
+        status, where = check_key(urls, key)
+        print(f"Key probe: {status if status in {'ok', 'bad-key', 'clock', 'unreachable'} else 'HTTP error'}")
+        capabilities = read_capabilities(where) if status == "ok" else None
+        if capabilities is None:
+            print("Server capabilities: unavailable")
+        else:
+            compatible = (provider in capabilities["providers"] and version in capabilities["payload_versions"]
+                          and "v1" in capabilities["signing_versions"])
+            print(f"Server capabilities: {'supported' if compatible else 'unsupported'}")
+    else:
+        print("Key probe: not run (address or key missing)")
+    print("Actual hook receipt: not verified; the empty key probe is not an agent event.")
+    if provider == "codex":
+        print("Hook trust: not inspected. Review or verify hooks in Codex /hooks.")
 
 
 def main():
-    p = argparse.ArgumentParser(description="Connect this computer's Claude Code to the Token & Tally office.")
+    p = argparse.ArgumentParser(description="Connect Claude Code or Codex to the Token & Tally office.")
+    p.add_argument("--provider", choices=("claude", "codex"), default="claude", help="hook provider (default: claude)")
     p.add_argument("--server",
                    help=f"the office's main address (default: {OFFICE_URL or 'the office this was downloaded from'})")
     p.add_argument("--extra-url", action="append", metavar="URL",
@@ -382,9 +517,11 @@ def main():
                         f"default: {' '.join(EXTRA_URLS) or 'none'})")
     p.add_argument("--name", help="computer label (default: existing label, or hostname on first install)")
     p.add_argument("--key", help="the office key (otherwise you're asked for it)")
-    p.add_argument("--uninstall", action="store_true", help="remove the hooks and relay from this computer")
+    action = p.add_mutually_exclusive_group()
+    action.add_argument("--uninstall", action="store_true", help="remove this provider's hooks and relay")
+    action.add_argument("--check", action="store_true", help="inspect this provider's installation without changing it")
     args = p.parse_args()
-    (uninstall if args.uninstall else install)(args)
+    (check if args.check else uninstall if args.uninstall else install)(args)
 
 
 if __name__ == "__main__":

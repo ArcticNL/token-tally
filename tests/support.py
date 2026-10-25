@@ -100,18 +100,20 @@ class Sandbox(contextlib.ExitStack):
         super().__enter__()
         self.root = Path(self.enter_context(tempfile.TemporaryDirectory(prefix="token-tally-test-")))
         self.config = self.root / "claude"
+        self.codex_config = self.root / "codex"
         self.projects = self.config / "projects"
         self.data = self.root / "data"
         self.logs = self.root / "logs"
         self.work = self.root / "work"
-        for directory in (self.projects, self.data, self.logs, self.work):
+        for directory in (self.projects, self.codex_config, self.data, self.logs, self.work):
             directory.mkdir(parents=True)
         self.names = self.data / "names.txt"
         self.names.write_text("Alice\n", encoding="utf-8")
         self.env = {key: value for key, value in os.environ.items()
                     if not key.upper().startswith(("TOKEN_TALLY_", "OFFICE_"))
-                    and key.upper() not in ("CLAUDE_CONFIG_DIR", "PYTHONPATH", "PYTHONHOME")}
-        self.env.update(CLAUDE_CONFIG_DIR=str(self.config), PYTHONDONTWRITEBYTECODE="1",
+                    and key.upper() not in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "PYTHONPATH", "PYTHONHOME")}
+        self.env.update(CLAUDE_CONFIG_DIR=str(self.config), CODEX_HOME=str(self.codex_config),
+                        PYTHONDONTWRITEBYTECODE="1",
                         PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8", PYTHONNOUSERSITE="1")
         self.children = []
         return self

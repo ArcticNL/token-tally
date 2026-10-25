@@ -49,3 +49,47 @@ partial identities, cancellation boundaries, neutral output and delivery deadlin
 They do not launch a real AI session or change personal Codex configuration.
 A live installed-Codex smoke test remains a separate manual check; supported hook
 behavior depends on the installed Codex release and its trust settings.
+
+## Install and check
+
+Upgrade the office first, then download its installer from
+`http://<office-address>:8377/kit/install_relay.py`. Run it on the computer where
+Codex runs (use `python` on Windows):
+
+```bash
+python3 install_relay.py --provider codex --server http://<office-address>:8377
+```
+
+The installer asks for the office key and requires the server to advertise Codex,
+payload v2 and signing v1. It writes `hooks.json` and the `token-tally` relay
+directory under `CODEX_HOME`, or `~/.codex` when that variable is unset. It adds
+twelve event handlers, preserves foreign hooks and backs up changed hook settings.
+Rerunning the command preserves the client ID, key, addresses and computer label
+unless you explicitly override them. Claude installations remain separate.
+
+Review the resulting hooks in Codex `/hooks`. The installer does not edit
+`config.toml`, enable features, change organization policy or grant hook trust.
+The eleven asynchronous handlers use a three-second process timeout; SessionEnd
+is synchronous with the shorter delivery budget described above.
+
+```bash
+python3 install_relay.py --provider codex --check
+```
+
+This read-only check reports local configuration, an empty signed key probe and
+server compatibility separately. A successful probe does not prove that Codex has
+trusted or invoked the hooks. Actual receipt requires a separately chosen live
+session and observation in the office; the check never starts one.
+
+To remove this provider's installation:
+
+```bash
+python3 install_relay.py --provider codex --uninstall
+```
+
+Uninstall removes recognized Codex handlers and owned relay files, retaining
+unrelated settings and files. If both provider roots resolve to the same directory,
+it refuses a configuration owned by the other provider; without a relay config,
+it retains shared files referenced by that provider's hooks. Use distinct roots
+for two installations. See [connecting PCs](connecting-pcs.md) for saved options,
+backups and Tailscale addresses.

@@ -56,12 +56,14 @@ with mock.patch.object(socket, 'getfqdn', side_effect=AssertionError('unexpected
             transcript = decoy / "decoy.jsonl"
             transcript.write_text(json.dumps({"type": "user", "sessionId": "decoy-session",
                                              "message": {"content": "synthetic decoy"}}) + "\n", encoding="utf-8")
-            inherited = {"CLAUDE_CONFIG_DIR": str(decoy.parent.parent), "TOKEN_TALLY_URL": "http://invalid.example",
+            inherited = {"CLAUDE_CONFIG_DIR": str(decoy.parent.parent), "CODEX_HOME": str(Path(directory) / "codex"),
+                         "TOKEN_TALLY_URL": "http://invalid.example",
                          "TOKEN_TALLY_KEY": "synthetic-inherited-key", "OFFICE_PORT": "1"}
             with mock.patch.dict(os.environ, inherited), Sandbox() as sandbox:
                 self.assertFalse(any(key.startswith(("OFFICE_", "TOKEN_TALLY_")) for key in sandbox.env))
                 with sandbox.activate():
                     self.assertEqual(os.environ["CLAUDE_CONFIG_DIR"], str(sandbox.config))
+                    self.assertEqual(os.environ["CODEX_HOME"], str(sandbox.codex_config))
                 first, second = sandbox.start_server(), sandbox.start_server()
                 self.assertNotEqual(first.url, second.url)
                 for child in (first, second):
@@ -69,7 +71,9 @@ with mock.patch.object(socket, 'getfqdn', side_effect=AssertionError('unexpected
                     self.assertEqual(json.loads(request(child.url + "/state")[1])["agents"], [])
                     self.assertEqual(json.loads(request(child.url + "/names")[1])["names"], ["Alice"])
                 self.assertEqual(list(sandbox.projects.iterdir()), [])
+                self.assertEqual(list(sandbox.codex_config.iterdir()), [])
             self.assertTrue(transcript.exists())
+            self.assertFalse(Path(inherited["CODEX_HOME"]).exists())
             self.assertFalse(sandbox.root.exists())
             self.assertIsNotNone(first.process.poll())
             self.assertIsNotNone(second.process.poll())

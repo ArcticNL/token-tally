@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Separate Codex installation.** Use `install_relay.py --provider codex` to add
+  native hooks under `CODEX_HOME`. Install, update and uninstall preserve foreign
+  handlers and the other provider's installation. `--check` reports configuration,
+  a signed key probe and server support without changing files or starting an AI
+  session. Review hook trust in Codex `/hooks`; the installer does not grant it.
+  Upgrade the office first, then follow the [Codex setup](docs/codex.md#install-and-check).
+
 - **Native Codex observations.** Payload v2 accepts Codex hooks through a dedicated
   metadata-only adapter. Codex relays emit neutral JSON even when delivery fails;
   SessionEnd supports a 200 ms delivery budget. Missing actor identity remains

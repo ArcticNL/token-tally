@@ -30,8 +30,11 @@ Run the standard-library check entrypoint with Python 3.9 or newer:
 python tests/run_checks.py
 ```
 
-It compiles the Python sources, then runs signing (20 checks), office state (13),
-container entrypoint (12) and harness regressions in separate processes. Compilation
+It compiles the Python sources, then runs fifteen suites in separate processes:
+signing, office display state, container entrypoint, harness isolation, Claude and
+Codex installation, event identity/deduplication, both provider adapters, reducer
+ordering, relay privacy/transport, HTTP protocol, Codex output and Codex state.
+Compilation
 uses `py_compile`, so errors such as a `global` declaration after use are caught.
 Use `python tests/run_checks.py --syntax` for compilation alone. Each existing
 `python tests/test_*.py` script can also be run individually. Absolute script paths
@@ -47,7 +50,7 @@ and continues after a failed suite. It does not infer success by parsing log tex
 
 - Use `with Sandbox() as sandbox, sandbox.activate():` before importing application
   modules. Children inherit the sandbox environment automatically. Each scope owns
-  temporary Claude configuration/projects, names, data, working directory and logs.
+  temporary Claude configuration/projects, `CODEX_HOME`, names, data, working directory and logs.
   No real transcripts, user names, keys or settings are needed.
 - Use `sandbox.start_server(keyfile=None)` or `sandbox.start_entrypoint(...)` for
   process tests. Both return a managed process with `.url`, `.process` and `.log()`.
@@ -208,11 +211,20 @@ The state classes and transcript helpers live in `token_tally/office.py`.
 | --- | --- |
 | `TASKS`, `task_for()` | tool name → task category |
 | `token_tally/claude.py` | validated metadata-only hook/transcript adapters |
+| `token_tally/codex.py` | native Codex hook metadata and explicit unattributed actors |
+| `token_tally/events.py` | scoped actor identities, observations and bounded deduplication |
+| `token_tally/protocol.py` | payload validation and provider dispatch |
 | `Agent` | one worker's state; `public()` is what the browser gets |
 | `Office.scan()`, `ingest()` | transcript tailing and parsing |
 | `Office.apply()` | one reducer for all provider observations |
 | `Office.tick()` | guesses, clock-outs, broadcast |
 | `Handler` | HTTP routes, host check, hook key check, SSE |
+
+`hook_relay.py` remains a standalone stdlib script with bounded delivery and
+provider-specific neutral output. `static/kit/install_relay.py` installs or checks
+one selected provider without changing the other's configuration. See
+[Codex integration](codex.md) and [hook protocol](hook-protocol.md) for migration
+and the limits of automated verification.
 
 ### Browser modules
 
