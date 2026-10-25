@@ -38,6 +38,8 @@ const hud = createHud({
   onLiteChange() {
     try { localStorage.setItem('tt-lite', LITE ? '0' : '1'); } catch { /* ignore */ }
     params.set('lite', LITE ? '0' : '1');
+    if (state.source === 'demo') params.set('demo', '');
+    else params.delete('demo');
     location.search = params.toString();
   },
 });

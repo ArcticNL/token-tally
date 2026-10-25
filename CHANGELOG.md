@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Keep the selected shift when changing quality.** Switching between low and
+  high quality preserves the current live or demo choice after reloading, even
+  when that choice differs from the page's original URL.
+
 - **Distinct staff badges.** Personnel files derive their short badge number from
   the complete opaque actor ID, so workers from the same provider no longer share
   the same visible prefix. Badges stay stable across cast and status changes.

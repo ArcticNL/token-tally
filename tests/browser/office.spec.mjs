@@ -150,6 +150,28 @@ test('lite preference survives navigation and the explicit URL overrides it', as
   await expect(page.locator('[data-cmd="lite"]')).toHaveText('Low quality mode');
 });
 
+for (const initialSource of ['live', 'demo']) {
+  test(`quality reload preserves the source chosen after opening ${initialSource}`, async ({ page, office }) => {
+    office.server.publish(snapshot([agent('source-choice')]));
+    await office.open(initialSource === 'demo' ? '?demo&lite&keep=value' : '?lite&keep=value');
+    await page.locator('#demo').click();
+    const demo = initialSource === 'live';
+    await expect(page.locator('#demo')).toHaveAttribute('aria-pressed', String(demo));
+    for (const lite of [false, true]) {
+      await page.locator('#start').click();
+      await page.getByRole('button', { name: lite ? 'Low quality mode' : 'High quality mode', exact: true }).click();
+      await expect(page).toHaveURL((url) => url.searchParams.get('lite') === (lite ? '1' : '0'));
+      await expect(page.locator('#conn')).toHaveText(demo ? 'Demo shift' : 'Live · hooks on');
+      await expect(page.locator('#demo')).toHaveAttribute('aria-pressed', String(demo));
+      await expect(rows(page)).toHaveCount(demo ? 3 : 1);
+      if (!demo) await expect(row(page, 'source-choice')).toBeVisible();
+      const url = new URL(page.url());
+      expect(url.searchParams.has('demo')).toBe(demo);
+      expect(url.searchParams.get('keep')).toBe('value');
+    }
+  });
+}
+
 test('tablet viewport keeps roster and personnel selection usable', async ({ page, office }) => {
   await page.setViewportSize({ width: 768, height: 1024 });
   office.server.publish(snapshot([agent('tablet')]));
