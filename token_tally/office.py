@@ -72,8 +72,14 @@ class Agent:
     def relevant(self, items):
         return {key: value for key, value in items.items() if key[0] == self.current_turn}
 
+    def active_waits(self):
+        # A native turn on another event cannot qualify or answer a wait whose
+        # turn is unknown. Keep that evidence visible until correlated closure.
+        return {key: value for key, value in self.waits.items()
+                if key[0] is None or key[0] == self.current_turn}
+
     def refresh(self, ts, fallback="thinking"):
-        waits = self.relevant(self.waits)
+        waits = self.active_waits()
         pending = self.relevant(self.pending)
         if waits:
             name, task, detail, _ = next(reversed(waits.values()))
@@ -93,6 +99,11 @@ class Agent:
         now = time.time() if now is None else now
         if self.held and status in ("thinking", "replying", "idle") and now < self.hold_until:
             status, (task, tool, detail, since) = "working", self.held
+        observed_turn = self.current_turn
+        if self.status == "waiting" and not self.guess:
+            waits = self.active_waits()
+            if waits:
+                observed_turn = next(reversed(waits))[0]
         return {
             "id": self.id, "parent": self.parent, "temp": self.temp, "project": self.project,
             "provider": self.key.provider, "client_id": self.key.client_id,
@@ -103,8 +114,8 @@ class Agent:
                          "detail": self.detail, "since": self.since, "source": self.source,
                          "confidence": "inferred" if self.guess else "observed",
                          "correlation": "ambiguous" if self.ambiguous else
-                                        "native" if self.current_turn else "partial",
-                         "turn_id": self.current_turn, "limited": self.limited},
+                                        "native" if observed_turn else "partial",
+                         "turn_id": observed_turn, "limited": self.limited},
             "cwd": self.cwd, "title": self.title, "assignment": self.assignment, "machine": self.machine,
             "status": status, "task": task, "tool": tool, "detail": detail,
             "guess": self.guess, "since": since, "last": self.last, "tools": self.tools,
@@ -248,7 +259,7 @@ class Office:
                 self.close_calls(a, [key for key in (*a.pending, *a.waits) if key[0] == e.turn_id], now)
                 if a.current_turn == e.turn_id:
                     a.source = e.source
-                    a.set("idle", now)
+                    a.refresh(now, "idle")
         elif e.kind == "prompt":
             self.seen.discard(("codex_stopped_turn", e.actor, e.turn_id))
             if previous_turn and previous_turn != e.turn_id:
@@ -353,6 +364,7 @@ class Office:
                 return
             if e.kind in ("tool_start", "tool_end", "wait"):
                 pending_before = set(a.pending)
+                waits_before = a.active_waits()
                 key = self.call_key(a, e, now)
                 if key is None:
                     a.ambiguous = True
@@ -394,10 +406,10 @@ class Office:
                     if len(items) > 4096:
                         items.pop(next(iter(items)))
                         a.limited = True
-                if current:
+                if current or waits_before != a.active_waits():
                     a.source = e.source
                     if e.kind == "tool_end" and (turn_ended or turn_stopped):
-                        a.set("idle", now)
+                        a.refresh(now, "idle")
                     else:
                         a.refresh(now)
                 elif a.current_turn is None and e.kind == "tool_end" and turn_ended:
@@ -406,10 +418,11 @@ class Office:
             elif e.kind in ("stop", "interrupt"):
                 if e.source == "transcript" and e.turn_id is None and a.hooked and (a.pending or a.waits):
                     return  # no causal link from a historical line to these live calls
+                waits_before = a.active_waits()
                 self.close_calls(a, [k for k in (*a.pending, *a.waits) if k[0] == e.turn_id], now)
-                if current:
+                if current or waits_before != a.active_waits():
                     a.source = e.source
-                    a.set("idle", now)
+                    a.refresh(now, "idle")
                 self.codex_boundary(e, now)
                 # A Stop is an observation, not proof that this turn cannot
                 # continue. New calls in the same native turn remain valid.

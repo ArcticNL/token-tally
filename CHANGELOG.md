@@ -10,6 +10,11 @@
   the complete opaque actor ID, so workers from the same provider no longer share
   the same visible prefix. Badges stay stable across cast and status changes.
 
+- **Keep uncorrelated permission waits visible.** Native tool activity cannot
+  hide an earlier permission whose turn is unknown. Its displayed correlation
+  stays partial until an exact call match or applicable prompt boundary resolves
+  it; completing that permission reveals any other pending native tool.
+
 - **Fresh snapshots for slow connections.** Live subscribers retain the newest
   full snapshot rather than losing it behind an old backlog, including departures.
 

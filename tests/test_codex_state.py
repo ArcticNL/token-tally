@@ -178,6 +178,50 @@ class CodexStateTests(unittest.TestCase):
         self.assertEqual(set(unknown.pending), {(None, "call")})
         self.assertEqual(set(unknown.waits), {(None, None)})
 
+    def test_first_native_activity_cannot_hide_an_untagged_permission(self):
+        for name in ("PreToolUse", "PostToolUse", "PreCompact"):
+            with self.subTest(name=name):
+                self.send("PermissionRequest", session=name, turn=None, tool_name="exec_command")
+                self.send(name, session=name, turn="native-turn", tool_use_id="unrelated-call",
+                          tool_name="exec_command")
+                unknown = self.state(unknown=True, session=name)
+                self.assertEqual(unknown.status, "waiting")
+                self.assertEqual(set(unknown.waits), {(None, None)})
+                observed = unknown.public(self.clock[0])["observed"]
+                self.assertEqual((observed["turn_id"], observed["correlation"]), (None, "partial"))
+                self.send("Stop", session=name, turn="native-turn")
+                self.assertEqual(unknown.status, "waiting")
+                self.assertEqual(set(unknown.waits), {(None, None)})
+
+    def test_same_native_call_can_qualify_and_close_an_untagged_permission(self):
+        self.send("PermissionRequest", turn=None, tool_use_id="question", tool_name="exec_command")
+        self.send("PostToolUse", turn="native-turn", tool_use_id="question", tool_name="exec_command")
+        unknown = self.state(unknown=True)
+        self.assertFalse(unknown.waits)
+        self.assertEqual((unknown.status, unknown.current_turn), ("thinking", "native-turn"))
+        self.assertEqual(unknown.tools, 1)
+
+    def test_untagged_completion_reveals_native_activity_after_permission(self):
+        self.send("PermissionRequest", turn=None, tool_use_id="question", tool_name="exec_command")
+        self.send("PreToolUse", turn="native-turn", tool_use_id="other-call", tool_name="apply_patch")
+        unknown = self.state(unknown=True)
+        self.assertEqual(unknown.status, "waiting")
+        self.send("PostToolUse", turn=None, tool_use_id="question", tool_name="exec_command")
+        self.assertFalse(unknown.waits)
+        self.assertEqual((unknown.status, unknown.tool), ("working", "apply_patch"))
+        self.assertEqual(set(unknown.pending), {("native-turn", "other-call")})
+
+    def test_new_prompt_for_same_actor_closes_an_untagged_permission(self):
+        self.send("PermissionRequest", agent_id="child", turn=None, tool_name="exec_command")
+        self.send("PreToolUse", agent_id="child", turn="native-turn", tool_use_id="other-call",
+                  tool_name="apply_patch")
+        child = self.state(agent="child")
+        self.assertEqual(child.status, "waiting")
+        self.send("UserPromptSubmit", agent_id="child", turn="next-turn")
+        self.assertFalse(child.waits)
+        self.assertFalse(child.pending)
+        self.assertEqual((child.status, child.current_turn), ("thinking", "next-turn"))
+
     def test_first_root_prompt_does_not_guess_unknown_prior_turn_ownership(self):
         self.waiting(turn="unknown-old")
         self.send("UserPromptSubmit", turn="new-root-turn")
