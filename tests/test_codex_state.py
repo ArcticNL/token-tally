@@ -222,6 +222,18 @@ class CodexStateTests(unittest.TestCase):
         self.assertFalse(child.pending)
         self.assertEqual((child.status, child.current_turn), ("thinking", "next-turn"))
 
+    def test_first_native_prompt_preserves_unknown_wait_until_a_new_turn_is_known(self):
+        self.send("PermissionRequest", agent_id="child", turn=None, tool_name="exec_command")
+        self.send("UserPromptSubmit", agent_id="child", turn="first-native-turn")
+        child = self.state(agent="child")
+        self.assertEqual((child.status, child.current_turn), ("waiting", "first-native-turn"))
+        self.assertEqual(set(child.waits), {(None, None)})
+        observed = child.public(self.clock[0])["observed"]
+        self.assertEqual((observed["turn_id"], observed["correlation"]), (None, "partial"))
+        self.send("UserPromptSubmit", agent_id="child", turn="next-turn")
+        self.assertFalse(child.waits)
+        self.assertEqual((child.status, child.current_turn), ("thinking", "next-turn"))
+
     def test_first_root_prompt_does_not_guess_unknown_prior_turn_ownership(self):
         self.waiting(turn="unknown-old")
         self.send("UserPromptSubmit", turn="new-root-turn")

@@ -93,6 +93,12 @@ An uncorrelated historical transcript prompt/stop cannot erase live pending call
 Missing call IDs are matched by name only when exactly one call matches; ambiguous
 calls remain pending. Missing-ID waits persist until a correlated turn stop or
 new prompt, rather than pretending that another tool answered them.
+The first native prompt after an untagged wait may itself be delayed: it does not
+prove that a new turn started after the wait. The wait retains unknown turn
+correlation until matched call evidence resolves it or a subsequent prompt for
+the same actor changes an established native turn. Native activity and metadata
+cannot hide that uncorrelated wait; its observed turn stays unknown even when
+other activity has a native turn ID.
 
 Delivery IDs, terminal calls and retired turns use a 65-minute first-seen TTL,
 65,536 global cache entries and 4,096 entries per actor. Duplicates do not refresh
