@@ -11,7 +11,7 @@ from support import REPO, Sandbox  # noqa: E402
 
 # Register new suites here; optional Docker/browser tools have separate commands.
 SUITES = ("tests/test_signing.py", "tests/test_office_state.py", "tests/test_container_start.py",
-          "tests/test_harness.py")
+          "tests/test_harness.py", "tests/test_installer.py")
 SOURCE_FILES = ("server.py", "hook_relay.py", "docker/entrypoint.py", "static/kit/install_relay.py")
 SOURCE_DIRS = ("tests",)
 

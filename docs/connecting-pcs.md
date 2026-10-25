@@ -87,6 +87,14 @@ The other events follow the same pattern. `"async": true` means Claude Code neve
 
 After you update the office itself, run the installer again on every PC, the same way as above. That fetches the matching relay and keeps your settings, name and key.
 
+Explicit `--server`, `--extra-url`, `--name` and `--key` arguments override the saved
+values. Without them, the installer reuses your saved addresses, label and key.
+It preserves other handlers even when they share a hook group with the relay.
+An unchanged settings file is not rewritten; changed settings get a unique backup.
+Malformed configuration is rejected before any installation files are changed.
+Each replacement is atomic and write errors restore already replaced files; a
+power failure between replacements can still require running the installer again.
+
 **Coming from a version before 2026-10-23**, this is required. Since then, events are signed and the office refuses relays that still send the key in plain text ("Run the installer again to update it"). Those older relays sent the key in every event, so after updating every PC, also rotate the key: see [pi-server.md](pi-server.md#rotating-the-key).
 
 Away from home, the installer downloads the relay from its `--server` address. Point that at the office's Tailscale address and add the home one as a fallback:
@@ -101,4 +109,8 @@ python install_relay.py --server http://<tailscale-ip>:8377 --extra-url http://<
 python install_relay.py --uninstall
 ```
 
-This takes out only the office's hooks (backing up the settings first) and deletes `~/.claude/token-tally`.
+This takes out only the office's recognized hooks (backing up changed settings
+first) and removes `hook_relay.py` and `relay.json` from `~/.claude/token-tally`.
+Other files in that directory remain. The directory is removed only when empty.
+Manually wrapped or moved relay commands are left untouched; remove those yourself
+if you no longer want them.

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Installer preserves other hooks.** Updates and uninstall remove individual
+  Token & Tally handlers instead of whole shared groups. Rerunning the installer
+  retains saved addresses, name, key and extra configuration; malformed settings
+  leave the installation untouched. Uninstall keeps unrelated files in the relay
+  directory. Download the updated installer before your next update or uninstall.
+
 - Python checks now run through `python tests/run_checks.py` with temporary configuration and dynamic local ports. `server.py --port 0` reports its actual listening port.
 
 - **Auto-deploy works with Docker.** `pi/deploy.sh` rebuilds and restarts the container when the office folder has `compose.yaml` and `.env`, so push-to-deploy and the GitHub timer keep working after moving to Docker.
