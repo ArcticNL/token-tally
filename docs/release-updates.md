@@ -124,7 +124,9 @@ only if the exact old runtime is already healthy; otherwise changes stop. A
 failed rollback also blocks updates. Compose timeouts and caught interrupts kill
 the local process group and leave the runtime blocked; SIGKILL cannot be caught,
 so the persistent marker prevents a later rollback racing a surviving child.
-Local state writes flush the file and, on Unix, its parent directory.
+Local state writes flush the file and, on Unix, its parent directory. A timeout or
+interrupt of the read-only Compose status query preserves the existing journal
+and does not block future updates; settled activations can still roll back.
 
 Only transport/rate-limit/temporary-server failures retry, at most three times
 with short bounded backoff. Candidate-digest retry counts persist. A successful

@@ -15,6 +15,12 @@
   stays partial until an exact call match or applicable prompt boundary resolves
   it; completing that permission reveals any other pending native tool.
 
+- **Keep release status timeouts recoverable.** A failed read-only Compose status
+  query no longer creates an irreversible update block without a pending
+  activation. Existing journals remain available for normal recovery. This fix
+  requires updating the trusted host updater; earlier blocked installations with
+  no pending journal can manually rebootstrap their verified current release.
+
 - **Verify the complete release security baseline.** Managed bootstrap and
   updates refuse privileged containers, added capabilities and a read-only data
   mount. Install the updated trusted host updater separately, as described in

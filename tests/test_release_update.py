@@ -11,7 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pi"))
@@ -464,6 +464,41 @@ class RuntimeVerificationTests(unittest.TestCase):
         with patch.object(self.updater, "docker", side_effect=self.docker), \
              patch.object(self.updater, "dc", return_value="fixture"):
             self.updater.verify(self.snapshot)
+
+    def test_read_only_compose_timeout_preserves_state_and_allows_next_update(self):
+        self.updater.state["current"] = self.snapshot
+        self.updater.save()
+        before = copy.deepcopy(self.updater.state)
+        process = Mock(pid=123, returncode=-9)
+        process.communicate.side_effect = [subprocess.TimeoutExpired("docker compose ps", 120), ("", "")]
+        with patch.object(module.subprocess, "Popen", return_value=process), \
+             patch.object(module.os, "killpg") as kill, \
+             self.assertRaisesRegex(DeployError, "status request timed out"):
+            self.updater.dc(self.snapshot, "ps", "-q", "office")
+        kill.assert_called_once_with(123, signal.SIGKILL)
+        persisted = module.Updater(self.path)
+        self.assertEqual(persisted.state, before)
+        with patch.object(module, "fetch_release", return_value=release()):
+            self.assertEqual(persisted.update(), "unchanged")
+
+    def test_read_only_interrupt_does_not_poison_pending_recovery(self):
+        self.updater.state["pending"] = {"phase": "activation", "external_inflight": False,
+                                         "old": self.snapshot, "candidate": self.snapshot}
+        self.updater.save()
+        before = copy.deepcopy(self.updater.state)
+        process = Mock(pid=123, returncode=-9)
+        process.communicate.side_effect = [KeyboardInterrupt(), ("", "")]
+        with patch.object(module.subprocess, "Popen", return_value=process), \
+             patch.object(module.os, "killpg"), self.assertRaises(KeyboardInterrupt):
+            self.updater.dc(self.snapshot, "ps", "-q", "office")
+        persisted = module.Updater(self.path)
+        self.assertEqual(persisted.state, before)
+        with patch.object(persisted, "docker"), patch.object(persisted, "dc") as compose, \
+             patch.object(persisted, "verify"):
+            self.assertTrue(persisted.recover())
+        self.assertEqual(compose.call_args.args[1], "up")
+        self.assertIsNone(persisted.state["pending"])
+        self.assertIsNone(persisted.state["blocked"])
 
 
 if __name__ == "__main__":

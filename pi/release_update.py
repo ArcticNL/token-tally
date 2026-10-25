@@ -239,6 +239,12 @@ class Updater:
             except ProcessLookupError:
                 pass
             process.communicate()
+            if args[0] == "ps":
+                # A read cannot create a late activation. Preserve any journal
+                # so a settled activation can still use the normal rollback.
+                if isinstance(error, subprocess.TimeoutExpired):
+                    raise DeployError("release Compose status request timed out") from None
+                raise
             # A daemon operation may already have been accepted. Do not race a
             # possibly late activation with an automatic rollback.
             self.state["blocked"] = "interrupted Compose left uncertain runtime; inspect before manual recovery"
