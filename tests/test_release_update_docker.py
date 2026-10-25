@@ -71,6 +71,35 @@ def check_environment_guard(updater, snapshot, descriptor):
     print("PASS real Docker bootstrap refuses unrecorded OFFICE_DATA without changing runtime or data")
 
 
+def check_security_guard(updater, snapshot, descriptor):
+    before = hashes(updater, snapshot)
+    for name in ("capability", "read-only data"):
+        modified = copy.deepcopy(snapshot)
+        service = modified["launch"]["services"]["office"]
+        if name == "capability":
+            service["cap_add"] = ["NET_BIND_SERVICE"]
+            expected = "security mismatch"
+        else:
+            service["volumes"][0]["read_only"] = True
+            expected = "data mount mismatch"
+        updater.dc(modified, "up", "-d", "--no-build", "--pull", "never", "office")
+        cid = updater.dc(modified, "ps", "-q", "office")
+        with patch.object(module, "fetch_release", return_value=descriptor):
+            try:
+                updater.bootstrap(descriptor["version"])
+            except module.DeployError as error:
+                assert expected in str(error), "unexpected bootstrap rejection"
+            else:
+                raise AssertionError("bootstrap accepted " + name)
+        assert updater.state["current"] is None and updater.state["pending"] is None
+        assert updater.dc(modified, "ps", "-q", "office") == cid, "rejected bootstrap replaced the container"
+        assert hashes(updater, modified) == before, "rejected bootstrap changed key/names"
+        updater.dc(snapshot, "up", "-d", "--no-build", "--pull", "never", "office")
+        updater.verify(snapshot)
+        assert hashes(updater, snapshot) == before
+    print("PASS real Docker bootstrap refuses added capabilities and read-only data without mutation")
+
+
 def exercise(base):
     name = "tt-release-" + secrets.token_hex(6)
     images, snapshots = [], []
@@ -119,6 +148,7 @@ def exercise(base):
             cid = updater.dc(old, "ps", "-q", "office")
             updater.docker("exec", cid, "python", "-c", "from pathlib import Path; Path('/data/names.txt').write_text('Manager: Fixture Manager\\nFixture Worker\\n')")
             check_environment_guard(updater, old, data[0])
+            check_security_guard(updater, old, data[0])
             before = hashes(updater, old)
             with patch.object(module, "fetch_release", return_value=data[0]):
                 updater.bootstrap("v1.0.0")

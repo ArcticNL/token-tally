@@ -271,10 +271,10 @@ class Updater:
             mounts = [item for item in container["Mounts"] if item["Destination"] == "/data"]
             if any(item["Destination"] != "/data" and not (item["Destination"] == "/tmp" and item["Type"] == "tmpfs") for item in container["Mounts"]):
                 raise DeployError("additional mounts require manual migration before release updates")
-            if len(mounts) != 1 or mounts[0]["Type"] != mount["type"] or mounts[0].get("Name" if mount["type"] == "volume" else "Source") != expected_source:
+            if len(mounts) != 1 or mounts[0]["Type"] != mount["type"] or mounts[0].get("Name" if mount["type"] == "volume" else "Source") != expected_source or mounts[0].get("RW") is not True:
                 raise DeployError("release container data mount mismatch")
             host = container["HostConfig"]
-            if not host.get("ReadonlyRootfs") or host.get("Init") is not True or "ALL" not in host.get("CapDrop", []) or not any(item in ("no-new-privileges", "no-new-privileges:true") for item in host.get("SecurityOpt", [])):
+            if host.get("Privileged") is not False or host.get("CapAdd") or not host.get("ReadonlyRootfs") or host.get("Init") is not True or "ALL" not in host.get("CapDrop", []) or not any(item in ("no-new-privileges", "no-new-privileges:true") for item in host.get("SecurityOpt", [])):
                 raise DeployError("release container security mismatch")
             service = snapshot["launch"]["services"]["office"]
             if container["Config"].get("User") != service["user"]:

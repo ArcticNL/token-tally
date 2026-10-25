@@ -85,6 +85,8 @@ Bootstrap checks the immutable asset and source tag, both platform manifest
 digests, selected platform, image labels/config ID, container health, `/version`,
 security settings, port, environment and exact data mount. It does **not** start
 or replace a container. A legacy/dev image cannot become a rollback baseline.
+Privileged containers, added capabilities and a read-only `/data` mount are
+rejected, even when the image, health check and version otherwise match.
 The environment must match the image defaults plus the policy's allow-host and
 extra-URL settings. Extra runtime overrides, including `OFFICE_DATA`, `OFFICE_APP`
 and `PYTHONPATH`, are refused rather than silently discarded during an update or

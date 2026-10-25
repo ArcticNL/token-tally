@@ -445,6 +445,26 @@ class RuntimeVerificationTests(unittest.TestCase):
                     self.updater.prepare(data)
             self.image["Config"]["Env"].pop()
 
+    def test_privilege_and_data_mount_drift_are_rejected(self):
+        original = copy.deepcopy(self.container)
+        cases = (("privileged", lambda value: value["HostConfig"].update(Privileged=True), "security mismatch"),
+                 ("capability", lambda value: value["HostConfig"].update(CapAdd=["NET_BIND_SERVICE"]), "security mismatch"),
+                 ("read-only data", lambda value: value["Mounts"][0].update(RW=False), "data mount mismatch"),
+                 ("missing privileged", lambda value: value["HostConfig"].pop("Privileged"), "security mismatch"),
+                 ("missing writable", lambda value: value["Mounts"][0].pop("RW"), "data mount mismatch"))
+        for name, modify, error in cases:
+            self.container = copy.deepcopy(original)
+            modify(self.container)
+            with self.subTest(name=name), patch.object(self.updater, "docker", side_effect=self.docker), \
+                 patch.object(self.updater, "dc", return_value="fixture"):
+                with self.assertRaisesRegex(DeployError, error):
+                    self.updater.verify(self.snapshot)
+        self.container = original
+        self.container["HostConfig"]["CapAdd"] = None  # Docker can return null for an empty list.
+        with patch.object(self.updater, "docker", side_effect=self.docker), \
+             patch.object(self.updater, "dc", return_value="fixture"):
+            self.updater.verify(self.snapshot)
+
 
 if __name__ == "__main__":
     unittest.main()
