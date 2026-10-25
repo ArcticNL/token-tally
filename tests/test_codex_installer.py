@@ -153,6 +153,44 @@ class CodexInstallerTests(unittest.TestCase):
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.read_json(self.config)["client_id"], client)
 
+    @unittest.skipUnless(os.name == 'posix', 'requires POSIX filenames')
+    def test_metacharacter_paths_roundtrip_install_check_and_uninstall(self):
+        self.codex = self.root / 'codex $HOME $(echo fixture) `echo fixture` "quote" \'single\' & \\path'
+        self.settings = self.codex / 'hooks.json'
+        self.relay_dir = self.codex / 'token-tally'
+        self.config = self.relay_dir / 'relay.json'
+        self.relay = self.relay_dir / 'hook_relay.py'
+        with mock.patch.object(installer, 'CODEX_DIR', self.codex):
+            self.invoke()
+            before = self.snapshot()
+            self.invoke()
+            self.assertEqual(self.snapshot(), before)
+            self.assertIn('Configured: yes', self.invoke('check'))
+            self.assertEqual(self.snapshot(), before)
+            self.invoke('uninstall')
+        self.assertFalse(self.relay.exists())
+        self.assertFalse(self.config.exists())
+        self.assertNotIn('hooks', self.read_json(self.settings))
+
+    @unittest.skipUnless(os.name == 'posix', 'requires a POSIX shell')
+    def test_check_rejects_legacy_expanding_paths_but_upgrade_recognizes_them(self):
+        self.codex = self.root / 'codex $HOME'
+        self.settings = self.codex / 'hooks.json'
+        self.relay_dir = self.codex / 'token-tally'
+        self.config = self.relay_dir / 'relay.json'
+        self.relay = self.relay_dir / 'hook_relay.py'
+        with mock.patch.object(installer, 'CODEX_DIR', self.codex):
+            self.invoke()
+            data = self.read_json(self.settings)
+            handler = data['hooks']['Stop'][0]['hooks'][0]
+            handler['command'] = handler['command'].replace('\\$', '$')
+            self.assertTrue(installer.is_ours(handler, 'codex', self.relay_dir))
+            self.write_json(self.settings, data)
+            self.assertIn('Configured: incomplete', self.invoke('check'))
+            self.invoke()
+            self.assertIn('Configured: yes', self.invoke('check'))
+            self.assertEqual(len(self.read_json(self.settings)['hooks']['Stop']), 1)
+
     def test_mixed_groups_preserve_foreign_handlers_and_metadata(self):
         own = installer.hook_handler("codex", "Stop", self.relay)
         foreign = {"type": "mcp_tool", "server": "fixture", "tool": "record"}
@@ -458,6 +496,27 @@ class CodexInstallerTests(unittest.TestCase):
         self.invoke("uninstall")
         self.assertFalse(self.relay.exists())
         self.assertNotIn("hooks", self.read_json(self.settings))
+
+    @unittest.skipUnless(os.name == 'posix', 'requires POSIX filenames')
+    def test_missing_config_preserves_shared_relay_with_escaped_foreign_reference(self):
+        shared_root = self.root / 'shared $HOME "quoted" \\path'
+        shared = shared_root / 'token-tally'
+        claude_settings = shared_root / 'settings.json'
+        codex_settings = shared_root / 'hooks.json'
+        with mock.patch.multiple(installer, CODEX_DIR=shared_root, RELAY_DIR=shared, SETTINGS=claude_settings):
+            self.invoke(provider='claude')
+            (shared / 'relay.json').unlink()
+            data = self.read_json(claude_settings)
+            handler = data['hooks']['Stop'][0]['hooks'][0]
+            handler['command'] += ' --foreign-wrapper-option'
+            self.write_json(claude_settings, data)
+            self.write_json(codex_settings, {'hooks': {'Stop': [{'hooks': [
+                installer.hook_handler('codex', 'Stop', shared / 'hook_relay.py'),
+            ]}]}})
+            self.invoke('uninstall')
+        self.assertTrue((shared / 'hook_relay.py').exists())
+        self.assertEqual(self.read_json(claude_settings), data)
+        self.assertNotIn('hooks', self.read_json(codex_settings))
 
     def test_malformed_own_config_stops_uninstall_before_any_mutation(self):
         self.invoke()

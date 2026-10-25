@@ -10,6 +10,7 @@ import io
 import http.client
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -167,6 +168,57 @@ class InstallerTests(unittest.TestCase):
         expected = copy.deepcopy(hooks)
         installer.strip_ours(hooks)
         self.assertEqual(hooks, expected)
+
+    @unittest.skipUnless(os.name == 'posix', 'requires a POSIX shell and filenames')
+    def test_generated_commands_execute_literal_paths_in_a_real_shell(self):
+        directory = self.root / 'literal $HOME $(touch substituted) `touch backticks` "quote" \'single\' & \\path'
+        directory.mkdir()
+        executable = directory / 'python3'
+        executable.symlink_to(sys.executable)
+        relay = directory / 'token-tally' / 'hook_relay.py'
+        relay.parent.mkdir()
+        relay.write_text('import json, sys\nprint(json.dumps(sys.argv[1:]))\n', encoding='utf-8')
+        with mock.patch.object(installer.sys, 'executable', str(executable)):
+            for provider, event, expected in (
+                ('claude', 'Stop', []),
+                ('codex', 'Stop', ['--provider', 'codex']),
+                ('codex', 'SessionEnd', ['--provider', 'codex', '--deadline-ms', '200']),
+            ):
+                with self.subTest(provider=provider, event=event):
+                    handler = installer.hook_handler(provider, event, relay)
+                    result = subprocess.run(handler['command'], shell=True, executable='/bin/sh',
+                                            cwd=self.root, input='{}', capture_output=True, text=True, timeout=5)
+                    self.assertEqual((result.returncode, result.stderr), (0, ''))
+                    self.assertEqual(json.loads(result.stdout), expected)
+                    self.assertTrue(installer.owns_command(handler['command'], provider, relay.parent, event))
+                    self.assertTrue(installer.is_ours(handler, provider, relay.parent))
+                    self.assertFalse(installer.is_ours(dict(handler, command=handler['command'] + ' && echo foreign'),
+                                                       provider, relay.parent))
+        self.assertFalse((self.root / 'substituted').exists())
+        self.assertFalse((self.root / 'backticks').exists())
+
+    def test_windows_quoting_and_legacy_separator_ownership_remain_compatible(self):
+        directory = Path('C:/Users/Fixture $ User/token-tally')
+        executable = 'C:/Program Files/Python/python.exe'
+        command = (installer.quote_command_path(executable, windows=True) + ' ' +
+                   installer.quote_command_path((directory / 'hook_relay.py').as_posix(), windows=True))
+        self.assertEqual(command, '"C:/Program Files/Python/python.exe" "C:/Users/Fixture $ User/token-tally/hook_relay.py"')
+        self.assertTrue(installer.owns_command(command, 'claude', directory))
+        self.assertTrue(installer.owns_command(command.replace('/', '\\'), 'claude', directory))
+
+    @unittest.skipUnless(os.name == 'posix', 'requires POSIX filenames')
+    def test_posix_backslash_filename_does_not_claim_a_different_relay(self):
+        directory = Path('/fixture/literal\\directory/token-tally')
+        command = '"python3" ' + installer.quote_command_path('/fixture/literal/directory/token-tally/hook_relay.py', windows=False)
+        self.assertFalse(installer.owns_command(command, 'claude', directory))
+
+    @unittest.skipUnless(os.name == 'posix', 'requires POSIX filenames')
+    def test_upgrade_removes_legacy_commands_with_unescaped_metacharacters(self):
+        directory = self.root / 'literal $HOME `hostname`' / 'token-tally'
+        old = {'type': 'command', 'command': f'"python3" "{directory.as_posix()}/hook_relay.py"'}
+        hooks = {'Stop': [{'hooks': [old]}]}
+        installer.strip_ours(hooks, 'claude', directory)
+        self.assertEqual(hooks, {})
 
     def test_install_preserves_other_settings_and_mixed_group(self):
         foreign = {"type": "command", "command": "other-handler", "timeout": 17}

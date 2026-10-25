@@ -9,6 +9,12 @@
   a state change between its initial snapshot and event registration, or have
   that snapshot replaced by an older tick still waiting to publish.
 
+- **Literal hook paths.** On macOS and Linux, relay hook commands escape shell
+  metacharacters in Python and configuration paths. Update, check and uninstall
+  recognize the escaped commands and previous installations. Download the updated
+  installer and rerun it to replace existing commands; native Windows quoting is
+  preserved.
+
 - **Local transcript cancellation.** In transcript-only sessions, an interruption
   or new prompt closes earlier pending tools instead of leaving a false permission
   wait. Uncorrelated transcript history still cannot clear observed hook waits.

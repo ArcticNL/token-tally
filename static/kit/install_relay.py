@@ -156,7 +156,29 @@ def source_supports_provider(source, provider):
             and all(isinstance(value, str) and value for value in providers) and provider in providers)
 
 
-def owns_command(command, provider, relay_dir, event=None):
+def quote_command_path(value, windows=None):
+    """Quote an installed path without expanding POSIX shell metacharacters.
+
+    Keep native Windows command-line quoting separate: POSIX backslash escapes
+    would become literal path characters there. Existing Windows commands keep
+    their double-quoted, forward-slash paths.
+    """
+    if windows is None:
+        windows = os.name == "nt"
+    if not windows:
+        value = re.sub(r'([\\"$`])', r'\\\1', value)
+    return '"' + value + '"'
+
+
+def command_path_matches(actual, expected):
+    """Accept Windows separators without conflating distinct POSIX filenames."""
+    if actual == expected:
+        return True
+    windows_path = re.match(r"^[A-Za-z]:[/\\]", expected) or expected.startswith("//")
+    return bool(windows_path and actual.replace("\\", "/") == expected)
+
+
+def owns_command(command, provider, relay_dir, event=None, literal_paths=False, windows=None):
     """Recognize the exact installed path and only our canonical provider flags."""
     if not isinstance(command, str):
         return False
@@ -164,13 +186,29 @@ def owns_command(command, provider, relay_dir, event=None):
     if provider == "codex" and event is not None:
         suffix = " --provider codex" + (" --deadline-ms 200" if event == "SessionEnd" else "")
     match = re.fullmatch(r'(?:"([^"\r\n]+)"|([^\s"\']+)) "([^"\r\n]+)"' + suffix, command)
-    if not match:
-        return False
-    executable = (match[1] or match[2]).replace("\\", "/")
-    interpreter = executable.rsplit("/", 1)[-1]
-    return bool((executable == Path(sys.executable).as_posix()
-                 or re.fullmatch(r"(?:pythonw?|pypy)(?:\d+(?:\.\d+)*)?t?(?:\.exe)?", interpreter, re.I))
-                and match[3].replace("\\", "/") == (relay_dir / "hook_relay.py").as_posix())
+    candidates = []
+    if match:
+        # Recognize previously installed commands too, so upgrades remove them
+        # even when their original unescaped POSIX path could not execute.
+        candidates.append((match[1] or match[2], match[3]))
+    # Parse only the generated double-quoted path grammar, never a general
+    # shell expression. shlex deliberately retains \$ and \` inside double
+    # quotes, so it cannot round-trip the literal arguments the shell receives.
+    quoted = r'"((?:[^"\\]|\\[\\"$`])*)"'
+    escaped = re.fullmatch(quoted + " " + quoted + suffix, command)
+    if escaped:
+        candidates.append(tuple(re.sub(r'\\([\\"$`])', r'\1', value) for value in escaped.groups()))
+    for executable, relay_path in candidates:
+        if literal_paths:
+            prefix = quote_command_path(executable, windows) + " " + quote_command_path(relay_path, windows)
+            if not command.startswith(prefix) or not re.fullmatch(suffix, command[len(prefix):]):
+                continue
+        interpreter = executable.replace("\\", "/").rsplit("/", 1)[-1]
+        if ((command_path_matches(executable, Path(sys.executable).as_posix())
+             or re.fullmatch(r"(?:pythonw?|pypy)(?:\d+(?:\.\d+)*)?t?(?:\.exe)?", interpreter, re.I))
+                and command_path_matches(relay_path, (relay_dir / "hook_relay.py").as_posix())):
+            return True
+    return False
 
 
 def is_ours(handler, provider="claude", relay_dir=None):
@@ -327,7 +365,7 @@ def strip_ours(hooks, provider="claude", relay_dir=None):
 
 
 def hook_handler(provider, event, relay):
-    command = f'"{Path(sys.executable).as_posix()}" "{relay.as_posix()}"'
+    command = quote_command_path(Path(sys.executable).as_posix()) + " " + quote_command_path(relay.as_posix())
     synchronous = provider == "codex" and event == "SessionEnd"
     if provider == "codex":
         command += " --provider codex" + (" --deadline-ms 200" if synchronous else "")
@@ -429,12 +467,14 @@ def uninstall(args):
     if relay_dir.resolve() == other_dir.resolve():
         other_data = load_settings(other_settings)
         relay_paths = {(directory / "hook_relay.py").as_posix() for directory in (relay_dir, other_dir)}
+        relay_paths.update(quote_command_path(path, windows=False) for path in tuple(relay_paths))
         # Shared configuration roots are possible. Be conservative for foreign
         # wrappers/platform overrides too: removing a referenced relay is unsafe.
-        preserve_relay = any(any(path in handler.get(field, "").replace("\\", "/") for path in relay_paths)
+        preserve_relay = any(any(path in command or path in command.replace("\\", "/") for path in relay_paths)
                              for groups in other_data.get("hooks", {}).values()
                              for group in groups for handler in group["hooks"]
-                             for field in ("command", "commandWindows", "command_windows"))
+                             for field in ("command", "commandWindows", "command_windows")
+                             for command in (handler.get(field, ""),))
     before = encoded(data)
     if isinstance(data.get("hooks"), dict):
         strip_ours(data["hooks"], provider, relay_dir)
@@ -469,7 +509,8 @@ def check(args):
         if any(is_ours(handler, provider, relay_dir)
                and type(handler.get("async")) is bool and handler["async"] == expected["async"]
                and type(handler.get("timeout")) is int and handler["timeout"] == expected["timeout"]
-               and all(owns_command(handler[field], provider, relay_dir, event)
+               and all(owns_command(handler[field], provider, relay_dir, event, literal_paths=True,
+                                    windows=True if field != "command" else None)
                        for field in ("command", "commandWindows", "command_windows") if field in handler)
                for group in groups if group.get("matcher", "*") in ("*", "") for handler in group["hooks"]):
             installed_events.add(event)
