@@ -44,6 +44,20 @@ def main():
         check("altered body refused", code == 403 and "Wrong signature" in msg, msg)
         code, msg = post(keyed.url, body, {**J, **hook_relay.sign("wrong-key", body)})
         check("wrong key refused", code == 403 and "Wrong signature" in msg, msg)
+        malformed = (
+            ("non-ASCII timestamp", "X-Token-Tally-Time", "\u00b2"),
+            ("oversized timestamp", "X-Token-Tally-Time", "1" * 5000),
+            ("non-ASCII nonce", "X-Token-Tally-Nonce", "\u00e9" * 24),
+            ("non-ASCII signature", "X-Token-Tally-Signature", "\u00e9" * 64),
+            ("short signature", "X-Token-Tally-Signature", "a" * 63),
+            ("non-hex signature", "X-Token-Tally-Signature", "g" * 64),
+        )
+        for description, field, value in malformed:
+            valid = {**J, **hook_relay.sign(KEY, body)}
+            code, msg = post(keyed.url, body, {**valid, field: value})
+            check(description + " gets a controlled refusal", code == 403 and msg == "Malformed signature", msg)
+            check(description + " does not consume the valid nonce", post(keyed.url, body, valid)[0] == 204)
+        check("malformed signatures do not produce handler tracebacks", "Traceback" not in keyed.log())
         code, msg = post(keyed.url, body, {**J, **hook_relay.sign(KEY, body, now=time.time() - 600)})
         check("10-minute-old event refused", code == 403 and "expired" in msg, msg)
         code, msg = post(keyed.url, body, J)

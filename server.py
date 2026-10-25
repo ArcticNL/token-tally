@@ -77,7 +77,11 @@ def check_signature(headers, body, now=None):
     mac = headers.get("X-Token-Tally-Signature", "").lower()
     if not (stamp and nonce and mac):
         return "Unsigned event"
-    if not stamp.isdigit() or not 16 <= len(nonce) <= 64 or not nonce.isalnum():
+    # Validate bounded ASCII fields before int() and compare_digest(), both of
+    # which can raise on malformed header text instead of returning a refusal.
+    if not (1 <= len(stamp) <= 20 and stamp.isascii() and stamp.isdigit()
+            and 16 <= len(nonce) <= 64 and nonce.isascii() and nonce.isalnum()
+            and len(mac) == 64 and all(char in "0123456789abcdef" for char in mac)):
         return "Malformed signature"
     if abs(now - int(stamp)) > SIGNATURE_WINDOW:
         return "Signature expired: is this computer's clock more than 5 minutes off?"

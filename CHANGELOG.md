@@ -10,6 +10,10 @@
   the complete opaque actor ID, so workers from the same provider no longer share
   the same visible prefix. Badges stay stable across cast and status changes.
 
+- **Reject malformed signing headers cleanly.** Non-ASCII and oversized signature
+  fields now receive HTTP 403 instead of aborting the request handler. Valid
+  signing v1 relays and nonce replay protection are unchanged.
+
 - **Relay updates through a reachable fallback.** The installer downloads the
   relay from the address that accepted the key and supplied server capabilities,
   so an unavailable saved primary address no longer blocks an update. Saved
