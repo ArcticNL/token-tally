@@ -20,6 +20,20 @@ last. Consumers use the digest, never a mutable `latest` tag. OCI labels and
 `/version` come from build arguments; runtime environment cannot override them.
 Local source runs report `dev` and a null revision.
 
+The two native builds call the same reusable build workflow separately. Each
+returns the exact uploaded artifact ID for its platform digest. The index job
+downloads those IDs and returns its own descriptor artifact ID to promotion and
+publication. Consumers never infer an artifact's name from their current run
+attempt. If only one platform build fails, **Re-run failed jobs** can reuse the
+other platform's successful output. A retry after smoke or promotion failure
+reuses the already tested candidate and descriptor without rebuilding it.
+
+Artifacts are retained for seven days. Retry only while the producer artifacts
+remain available; missing artifacts fail the release. A failure after tag or draft
+release creation still needs operator inspection under the single-use version
+policy above. Artifact retry support does not make partial publication automatic
+or permit replacing an existing release.
+
 ## One-time repository administration
 
 These are future administrator actions, not performed by running repository tests:
@@ -50,7 +64,10 @@ workflow. The immutable GitHub asset and its digest are the consumer authority.
 
 ## Verification
 
-Run `python3 -B tests/test_release.py` and `actionlint`. Test a built image with:
+Run `python3 -B tests/test_release.py`, `python3 -B tests/test_release_workflow.py`
+and `actionlint`. The workflow tests resolve the actual producer/consumer output
+bindings using synthetic partial-rerun state; they do not invoke GitHub Actions.
+Test a built image with:
 
 ```sh
 docker build --build-arg TOKEN_TALLY_VERSION=v1.2.3 \

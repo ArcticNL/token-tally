@@ -24,6 +24,12 @@
   at the entrance while a tab is in the background. Staff already walking still
   follow their normal route out.
 
+- **Resume failed release jobs with the same artifacts.** Native builds now return
+  separate digest artifact IDs, and promotion/publication receive the exact
+  descriptor artifact ID from the index job. Failed-only workflow retries can
+  reuse successful earlier jobs without rebuilding a tested candidate. Existing
+  partial-publication checks and credential boundaries remain in place.
+
 - **Preserve local Docker names mounts.** Legacy deployments now stop before
   checkout when `compose.yaml` has local changes. Move installation settings into
   the private `compose.override.yaml`, which ordinary Compose and deployments
