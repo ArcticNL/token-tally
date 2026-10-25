@@ -22,7 +22,8 @@ test('full snapshots update the roster without duplicating arrivals', async ({ p
   office.server.publish(snapshot(staff));
   await office.open();
   await expect(rows(page)).toHaveCount(2);
-  await expect(row(page, 'one')).toContainText('Test computer · project-one');
+  await expect(row(page, 'one').locator('.meta')).toContainText('Test computer');
+  await expect(row(page, 'one').locator('.sub')).toContainText('project-one');
   const memos = await page.locator('#memos').allTextContents();
   await office.publish(staff);
   await expect(rows(page)).toHaveCount(2);
@@ -40,7 +41,8 @@ test('parents and subagents group correctly even when children arrive first', as
   await expect(row(page, 'child-a')).toContainText('Temp');
   const parentName = await row(page, 'parent').locator('.nm').innerText();
   await row(page, 'child-a').click();
-  await expect(page.locator('#file-body')).toContainText(`Temp, reporting to ${parentName}`);
+  await expect(page.locator('[data-field="position"]')).toHaveText('Temp');
+  await expect(page.locator('[data-field="parent"]')).toHaveText(parentName);
 });
 
 test('more than twelve staff stay selectable with twelve unique desk owners', async ({ page, office }) => {

@@ -20,7 +20,10 @@ for event in (signal.SIGINT, signal.SIGTERM):
 with Sandbox() as office:
     home = office.root / "home"
     home.mkdir()
-    office.env.update(HOME=str(home), USERPROFILE=str(home))
+    codex = home / ".codex"
+    codex.mkdir()
+    office.env.update(HOME=str(home), USERPROFILE=str(home), CODEX_HOME=str(codex),
+                      XDG_CONFIG_HOME=str(home / ".config"), XDG_CACHE_HOME=str(home / ".cache"))
     office.names.write_text("Sample Worker\nManager: Sample Manager\n", encoding="utf-8")
     server = office.start_server()
     print(json.dumps({"url": server.url}), flush=True)

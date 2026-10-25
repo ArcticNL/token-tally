@@ -127,6 +127,17 @@ Three.js from `static/vendor/`; no build step is needed.
 - **The maintenance man** (`crewBrain()`, `CREW_JOBS`) is another non-agent character, kept outside the `actors` map, so he never appears in the roster or gets clicked. He arrives whenever the wall clock enters a new quarter hour (`VISIT_EVERY`), so every screen sees the same visit. He fixes each job in `CREW_JOBS` for `FIX_FOR` seconds (the copier, then the coffee machine) and leaves by the door. His name comes from the `Maintenance:` line in `names.txt`, defaulting to Stan.
 - **Names:** each worker's name is picked from the cast by a hash of their session ID, so it stays the same while they're on shift. `loadNames()` fetches `/names` at start and every 30 s. When the cast changes, it re-deals everyone's name tags and desk nameplates and renames the Manager. Without a `names.txt`, the built-in names, Mr. Pemberton and "Ahem." are used.
 - **The HUD** is plain HTML in a retro 1990s desktop style: the roster, personnel files, sticky-note memos, the taskbar and the Start menu.
+- **Observation metadata:** roster/file status reads `observed` when supplied;
+  movement still reads the flat animation fields. `metadata.js` displays provider
+  and computer only from their explicit labels, and resolves a parent only by its
+  opaque ID among active staff. Evidence is Observed, Inferred or Unknown; scoped
+  identity does not imply verified identity. Correlation and limited history are
+  separate qualifications. `last` means the latest server-accepted observation,
+  including metadata or historical events, not a status change or proof of current
+  activity. Snapshot delivery and reconnect never refresh it. Status source is
+  shown separately because it can describe an earlier event than `last`. Legacy
+  records retain their presentation status, unknown evidence unless `guess` is
+  true, and a timestamp explicitly labeled Last activity. Demo is Simulated.
 - **Demo shift** is a client-side simulator producing the same agent shape as the server.
 - **Low quality mode** (`?lite`) turns off shadows and antialiasing, renders at 1× resolution and caps the frame rate at about 30 fps.
 

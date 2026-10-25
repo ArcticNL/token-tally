@@ -1,5 +1,6 @@
 import { esc } from './utils.js';
 import { intent } from './state.js';
+import { age, formatAge, metadata, timestamp } from './metadata.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -14,13 +15,20 @@ export function createHud({
   const rosterNodes = new Map();
   function statusView(actor) {
     const a = actor.info, now = nowSec();
-    return intent(a, now - a.last, now - a.since);
+    const meta = metadata(a, state.source, now, actors);
+    // Never fill an observed record with fields held for animation.
+    const record = meta.observed ? { ...meta.observed, guess: meta.observed.confidence === 'inferred' } : a;
+    const view = intent(record, age(now, a.last) ?? 0, age(now, record.since) ?? 0);
+    const labels = { working: 'Working', thinking: 'Thinking', replying: 'Replying', waiting: 'Needs you', idle: 'Idle' };
+    if (meta.observed && !Object.hasOwn(labels, record.status)) return { meta, mood: 'unknown', label: 'Unknown', line: 'Unknown status' };
+    if (meta.observed && record.status === 'idle') return { meta, mood: 'break', label: 'Idle', line: 'Idle' };
+    return { ...view, meta, label: meta.observed ? labels[record.status] : MOOD_LABEL[view.mood] || 'Unknown' };
   }
   function orderedActors() {
     const all = [...actors.values()].filter((a) => !a.boss && !a.leaving && a.info);
-    const tops = all.filter((a) => !a.temp), out = [];
-    for (const t of tops) { out.push([t, 0]); for (const c of all.filter((a) => a.temp && a.info.parent === t.id)) out.push([c, 1]); }
-    for (const a of all) if (!out.some(([x]) => x === a)) out.push([a, a.temp ? 1 : 0]);
+    const tops = all.filter((a) => !a.info.temp), out = [];
+    for (const t of tops) { out.push([t, 0]); for (const c of all.filter((a) => a.info.temp && a.info.parent === t.id)) out.push([c, 1]); }
+    for (const a of all) if (!out.some(([x]) => x === a)) out.push([a, a.info.temp ? 1 : 0]);
     return out;
   }
   function renderRoster() {
@@ -42,7 +50,7 @@ export function createHud({
         item.setAttribute('role', 'listitem');
         button.type = 'button'; button.dataset.id = a.id;
         button.setAttribute('aria-controls', 'file');
-        button.innerHTML = '<span class="dot"></span><span class="nm"><span class="name"></span><span class="pill">Temp</span></span><span class="st"></span><span class="sub"></span>';
+        button.innerHTML = '<span class="dot"></span><span class="nm"><span class="name"></span><span class="pill">Temp</span></span><span class="st"></span><span class="sub"></span><span class="meta"><span class="origin"></span><span class="quality"></span><span class="seen"></span><span class="parent"></span></span>';
         item.append(button);
         node = { item, button }; rosterNodes.set(a.id, node);
       }
@@ -51,10 +59,19 @@ export function createHud({
       button.setAttribute('aria-pressed', String(a.id === state.selectedId));
       button.querySelector('.dot').style.background = a.look.shirt;
       button.querySelector('.name').textContent = a.name;
-      button.querySelector('.pill').hidden = !a.temp;
+      button.querySelector('.pill').hidden = !a.info.temp;
       button.querySelector('.st').className = `st ${view.mood}`;
-      button.querySelector('.st').textContent = MOOD_LABEL[view.mood] || '';
-      button.querySelector('.sub').textContent = `${a.info.machine ? a.info.machine + ' · ' : ''}${a.info.project || 'unknown project'} · ${view.line}`;
+      button.querySelector('.st').textContent = view.label;
+      button.querySelector('.sub').textContent = `${a.info.project || 'unknown project'} · ${view.line}`;
+      const { meta } = view;
+      const origin = button.querySelector('.origin'), quality = button.querySelector('.quality'), seen = button.querySelector('.seen'), parent = button.querySelector('.parent');
+      origin.textContent = `${meta.provider} · ${meta.computer}`;
+      origin.title = origin.textContent;
+      quality.textContent = `Evidence: ${meta.qualityText}`;
+      seen.textContent = `${meta.seenLabel}: ${meta.seenText}`;
+      parent.hidden = !a.info.temp && !a.info.parent && a.info.identity_quality !== 'unattributed';
+      parent.textContent = `Parent: ${meta.parent}`;
+      parent.title = parent.textContent;
       if (list.children[index] !== item) list.insertBefore(item, list.children[index] || null);
       counts[view.mood] = (counts[view.mood] || 0) + 1;
     });
@@ -71,30 +88,37 @@ export function createHud({
     list.scrollTop = scrollTop;
     $('#stats').innerHTML = `<span><b>${rows.length}</b> on shift</span><span><b>${counts.work + counts.think}</b> working</span>` +
       `<span style="color:${counts.wait ? 'var(--wait)' : 'inherit'}"><b>${counts.wait}</b> need you</span>` +
-      `<span class="long"><b>${counts.break}</b> on break</span><span class="long"><b>${counts.slack}</b> slacking</span>`;
+      `<span class="long"><b>${counts.break + counts.slack}</b> idle</span>`;
   }
   $('#roster-list').addEventListener('click', (e) => { const row = e.target.closest('.row'); if (row) select(row.dataset.id, true); });
   $('#roster-min').addEventListener('click', () => { const r = $('#roster'); r.classList.toggle('min'); $('#roster-min').textContent = r.classList.contains('min') ? '□' : '_'; });
 
-  function fmtAgo(sec) { sec = Math.max(0, Math.round(sec)); if (sec < 60) return `${sec}s`; if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`; return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`; }
-  function fmtTime(ts) { return new Date(ts * 1000 - (state.source === 'live' ? live.offset * 1000 : 0)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+  function fmtTime(ts) { return timestamp(ts) === null ? '—' : new Date(ts * 1000 - (state.source === 'live' ? live.offset * 1000 : 0)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+  function field(label, key, value, attributes = '') { return `<dt>${esc(label)}</dt><dd data-field="${key}"${attributes}>${esc(value)}</dd>`; }
   function renderFile() {
     const actor = state.selectedId && actors.get(state.selectedId);
     const win = $('#file');
     if (!actor || actor.leaving || !actor.info) { win.classList.add('hidden'); return; }
     win.classList.remove('hidden');
-    const a = actor.info, parent = a.parent && actors.get(a.parent);
+    const a = actor.info, view = statusView(actor), { meta } = view;
     $('#file-title').textContent = `Personnel File: ${actor.name}`;
     $('#file-body').innerHTML = `
       <dl>
-        <dt>Position</dt><dd>${a.temp ? `Temp, reporting to ${esc(parent?.name ?? 'a specialist')}` : 'Specialist'}</dd>
-        ${a.machine ? `<dt>Computer</dt><dd>${esc(a.machine)}</dd>` : ''}
+        ${field('Position', 'position', a.identity_quality === 'unattributed' ? 'Unattributed worker' : a.temp ? 'Temp' : 'Specialist')}
+        ${field('Provider', 'provider', meta.provider)}
+        ${field('Computer', 'computer', meta.computer)}
+        ${field('Parent', 'parent', meta.parent)}
+        ${field('Identity', 'identity', meta.identity)}
         <dt>Project</dt><dd>${esc(a.project || '—')}</dd>
         ${a.title ? `<dt>Session</dt><dd>${esc(a.title)}</dd>` : ''}
         <dt>Assignment</dt><dd>${esc(a.assignment || '—')}</dd>
-        <dt>Right now</dt><dd>${esc(statusView(actor).line)}</dd>
-        <dt>For</dt><dd>${fmtAgo(nowSec() - a.since)}</dd>
-        <dt>Tasks done</dt><dd>${a.tools}</dd>
+        ${field('Right now', 'observed-status', view.line)}
+        ${field('Evidence', 'quality', meta.qualityText)}
+        ${field('Status source', 'source', meta.statusSource)}
+        ${field('Correlation', 'correlation', meta.correlation)}
+        ${field('For', 'duration', formatAge(age(nowSec(), meta.since)))}
+        ${field(meta.seenLabel, 'last-seen', meta.seenText, meta.seenAt === null ? '' : ` data-timestamp="${meta.seenAt}"`)}
+        ${field('Tool calls', 'tools', typeof a.tools === 'number' && Number.isFinite(a.tools) ? a.tools : '—')}
         <dt>Badge no.</dt><dd><code>${esc(a.id.slice(0, 13))}</code></dd>
       </dl>
       <div class="log sunken">${(a.log || []).slice().reverse().map((l) => `<div>${fmtTime(l.t)}  ${esc(l.text)}</div>`).join('') || '<div>No entries yet.</div>'}</div>`;

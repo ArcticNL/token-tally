@@ -30,11 +30,8 @@ Run the standard-library check entrypoint with Python 3.9 or newer:
 python tests/run_checks.py
 ```
 
-It compiles the Python sources, then runs fifteen suites in separate processes:
-signing, office display state, container entrypoint, harness isolation, Claude and
-Codex installation, event identity/deduplication, both provider adapters, reducer
-ordering, relay privacy/transport, HTTP protocol, Codex output and Codex state.
-Compilation
+It compiles the Python sources, then runs the registered backend and fixture
+suites in separate processes. Compilation
 uses `py_compile`, so errors such as a `global` declaration after use are caught.
 Use `python tests/run_checks.py --syntax` for compilation alone. Each existing
 `python tests/test_*.py` script can also be run individually. Absolute script paths
@@ -179,6 +176,14 @@ endpoints. The helper cleans up when its stdin closes; normal shutdown is bounde
 Set `PYTHON` to an interpreter path if `python3` is not available. Browser CI pins
 Python 3.13; production still has no Node dependency.
 
+`observations.spec.mjs` sends synthetic Claude v1 hooks from Node to that isolated
+server and observes its real SSE in Chromium. It covers client/parent identity,
+status held for animation versus observed status, receipt timestamps and scoped
+session shutdown. Browser traffic still permits only GET requests. The helper
+also isolates `CODEX_HOME` and XDG paths. The metadata fixture tests exercise
+provider-neutral rendering, including Codex labels; they do not establish native
+Codex ingestion support or replace the PR11 integration check.
+
 The harness pauses Playwright's clock and installs seeded `Math.random` before the application starts. All fixture times derive from that clock. Advance normal application time with `page.clock.runFor()`; `tokenTally.advance()` does not control Date/timers/random and must not be used alongside the clock. Native EventSource reconnect uses browser networking time, so its test waits for connection events and holds/releases the reconnect instead of sleeping or assuming a particular delay.
 
 Tests cover live/demo, normal/lite, full snapshots, parent/subagent ordering, more than twelve staff, selection, a tablet viewport and reconnect. DOM and user interactions are primary; existing `tokenTally.deskSlots` is a read-only oracle for desk ownership. Replacement-desk and roster-focus regressions must pass normally, alongside overflow reassignment, direct status updates, departure/return and keyboard focus recovery.
@@ -235,6 +240,7 @@ and the limits of automated verification.
 | `static/office/actors.js` | People/poses, routing, desk allocation, cast, arrivals/departures, station linger, Manager and maintenance visits |
 | `static/office/hud.js` | Stable roster rows, personnel file, focus recovery, taskbar, Start menu and memos |
 | `static/office/state.js` | Live snapshot/time offset, source and selection state; `intent()` maps status to place, animation and label |
+| `static/office/metadata.js` | Public-contract labels, evidence, parent resolution and timestamp formatting; no identity inference |
 | `static/office/feed.js` | One native EventSource connection and cast fetching |
 | `static/office/demo.js` | Deterministic `DemoShift` simulator |
 | `static/office/utils.js` | Escaping, hashing and seeded random helpers |

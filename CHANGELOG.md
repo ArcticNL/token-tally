@@ -23,6 +23,14 @@
   server before rerunning the installer; an unverified server cannot silently
   replace an existing v2 relay with legacy code. See [migration](docs/hook-protocol.md).
 
+- **Source evidence in staff records.** The roster and personnel file show the
+  supplied provider, computer, parent, status evidence and last observation time.
+  Their current status follows `observed`, independently of animation holds.
+  Unknown metadata stays unknown; older snapshots label their timestamp as last
+  activity, and demo staff remain explicitly simulated.
+
+- **Desk and roster correctness.** Replacement snapshots release desks before arrivals; existing overflow staff take the next available desk. Roster and personnel status update directly from received records. Keyboard focus and selection survive roster refreshes, and departing staff close their personnel file immediately.
+
 - **Scoped, deduplicated observations.** Hook and transcript observations now use
   one reducer. Native tool calls count once, delayed starts cannot reopen completed
   calls, and unrelated completions do not clear waits. Provider/client/session IDs
@@ -38,7 +46,6 @@
   leave the installation untouched. Uninstall keeps unrelated files in the relay
   directory. Download the updated installer before your next update or uninstall.
 
-- **Desk and roster correctness.** Replacement snapshots release desks before arrivals; existing overflow staff take the next available desk. Roster and personnel status update directly from received records. Keyboard focus and selection survive roster refreshes, and departing staff close their personnel file immediately.
 
 - **Optional release updates:** a separate host-installed updater can consume
   verified immutable releases, preserve the existing data mount and roll back

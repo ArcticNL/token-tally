@@ -61,6 +61,8 @@ test('HUD shows the received waiting status before the next animation frame @pr1
 });
 
 test('focus and selection survive reordering, ten HUD updates and cast changes @pr13', async ({ page, office }) => {
+  // Ten HUD ticks also render hundreds of software frames on shared CI runners.
+  test.setTimeout(60_000);
   const child = agent('b', { parent: 'c', temp: true });
   office.server.publish(snapshot([agent('a'), child]));
   await office.open();
