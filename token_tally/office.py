@@ -456,8 +456,10 @@ class Office:
 
     def subscribe(self):
         q = queue.Queue(maxsize=64)
-        q.put(self.payload())
         with self.lock:
+            # Snapshot and registration share the publisher lock: a change in
+            # between must be queued, even if no later state changes occur.
+            q.put(self.payload())
             self.clients.add(q)
         return q
 

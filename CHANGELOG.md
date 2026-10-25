@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Atomic live subscriptions.** Opening or reconnecting a live view cannot miss
+  a state change between its initial snapshot and event registration.
+
 - **Protect legacy provider ownership.** Existing relay configurations without a
   `provider` field remain Claude configurations. A Codex install refuses to replace
   them before network access or writes, including when both configuration roots
