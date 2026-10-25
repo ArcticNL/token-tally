@@ -1,0 +1,9 @@
+[Unit]
+Description=Check verified Token & Tally releases
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/git/token-tally-office.git/office-host/release_update.py --config %h/git/token-tally-office.git/office-policy.json --trigger poll
+Nice=10
+TimeoutStartSec=45min

@@ -1,5 +1,9 @@
 # Running the office in Docker
 
+Manual tested images and optional host updates are described in
+[releases](releases.md) and [release updates](release-updates.md). Automatic
+updates start paused and preserve an explicitly configured existing data mount.
+
 ## Container verification
 
 The entrypoint test (`python tests/test_container_start.py`) does not run Docker.

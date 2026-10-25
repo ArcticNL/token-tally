@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "mode": "paused",
+  "repository": "example/token-tally",
+  "platform": "linux/arm64",
+  "major": 1,
+  "project": "token-tally-office",
+  "port": 8377,
+  "listen": "0.0.0.0",
+  "uid": 10001,
+  "gid": 10001,
+  "data": {"type": "volume", "source": "token-tally-office_office-data"},
+  "allow_hosts": "",
+  "extra_urls": "",
+  "deadline": 180
+}

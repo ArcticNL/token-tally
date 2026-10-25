@@ -1,0 +1,10 @@
+#!/bin/sh
+# Install as hooks/post-receive only after opting into host-managed releases.
+# No legacy fallback, even if both policy and host files disappear.
+set -eu
+REPO=$(pwd)
+while read -r old new ref; do
+    [ "$ref" = refs/heads/main ] || continue
+    [ "$new" != 0000000000000000000000000000000000000000 ] || continue
+    python3 "$REPO/office-host/release_update.py" --config "$REPO/office-policy.json" --trigger push
+done

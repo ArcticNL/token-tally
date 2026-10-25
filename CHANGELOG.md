@@ -26,6 +26,11 @@
 
 - **Desk and roster correctness.** Replacement snapshots release desks before arrivals; existing overflow staff take the next available desk. Roster and personnel status update directly from received records. Keyboard focus and selection survive roster refreshes, and departing staff close their personnel file immediately.
 
+- **Optional release updates:** a separate host-installed updater can consume
+  verified immutable releases, preserve the existing data mount and roll back
+  locally when a candidate fails. It starts paused and requires manual bootstrap.
+  See [operator transition and recovery](docs/release-updates.md) before enabling it.
+
 - **Manual tested releases:** native amd64/arm64 images are tested by digest before
   an immutable GitHub release is published. `/version` reports build identity.
   See [release administration](docs/releases.md) for required checks and the

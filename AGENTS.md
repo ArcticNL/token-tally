@@ -56,7 +56,10 @@ Token & Tally displays coding sessions in a 3D office. Read [README.md](README.m
 - Work on a feature branch. A push or merge to the followed `main`, or a push via
   `scripts/deploy-pi.sh`, can deploy immediately. Do not push unseen changes there;
   obtain user authorization for the deployment step. Never force-push `main`.
-- Both deployment routes run `pi/deploy.py` from the exact target commit. Installed
+- In legacy mode both deployment routes run `pi/deploy.py` from the exact target commit. Installed
   `pi/post-receive` and service/timer copies need a separate operator update after
   changes; see [Pi deployment](docs/pi-server.md). Do not modify a live installation
   merely because its repository files changed.
+- In managed release mode, both automatic entrypoints consult the policy and run
+  trusted host copies outside the checkout before reading candidate code. Updates
+  default to paused and need a verified manual bootstrap; see [release updates](docs/release-updates.md).

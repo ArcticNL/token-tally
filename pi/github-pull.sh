@@ -2,6 +2,9 @@
 # Fetch may overlap a push; target helper revalidates refs under the shared lock.
 set -eu
 REPO="${REPO:-$HOME/git/token-tally-office.git}"
+if [ -d "$REPO/office-host" ] || [ -e "$REPO/office-policy.json" ]; then
+    exec python3 "$REPO/office-host/release_update.py" --config "$REPO/office-policy.json" --trigger poll
+fi
 git --git-dir="$REPO" fetch --quiet origin +refs/heads/main:refs/remotes/origin/main
 TARGET=$(git --git-dir="$REPO" rev-parse refs/remotes/origin/main)
 # Read-only early no-op. The exact-target Python helper repeats eligibility under

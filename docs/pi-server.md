@@ -1,5 +1,9 @@
 # Running the office on a server (e.g. a Raspberry Pi)
 
+For optional digest-pinned Docker updates, follow the separate
+[release update transition](release-updates.md). It requires pausing both legacy
+deployment routes and manually bootstrapping a verified release first.
+
 For a single PC you don't need any of this: `python server.py --open` is enough. A server is for when you want the office **always on**: shown on a wall tablet, with several PCs reporting to it.
 
 Any always-on Linux box with Python 3.9+ works. A Raspberry Pi 3 is plenty, because the server only shuffles small JSON messages and the tablet does the 3D drawing. It runs happily next to other services.

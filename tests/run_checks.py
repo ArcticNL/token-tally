@@ -15,7 +15,7 @@ SUITES = ("tests/test_signing.py", "tests/test_office_state.py", "tests/test_con
           "tests/test_docker_smoke_unit.py", "tests/test_deployment.py",
           "tests/test_event_model.py", "tests/test_claude_adapter.py", "tests/test_state_events.py",
           "tests/test_release.py", "tests/test_relay_privacy.py",
-          "tests/test_relay_transport.py", "tests/test_protocol.py")
+          "tests/test_relay_transport.py", "tests/test_protocol.py", "tests/test_release_update.py")
 SOURCE_FILES = ("server.py", "hook_relay.py", "docker/entrypoint.py", "static/kit/install_relay.py")
 SOURCE_DIRS = ("tests", "token_tally", "pi", "scripts")
 
