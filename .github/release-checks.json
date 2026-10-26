@@ -1,0 +1,5 @@
+{
+  "python.yml": ["python-linux", "python-macos", "python-windows", "python-minimum"],
+  "docker-smoke.yml": ["docker-smoke (amd64)", "docker-smoke (arm64)"],
+  "browser.yml": ["chromium"]
+}

@@ -1,8 +1,8 @@
 # Token & Tally Stationery Supplies
 
-A 3D, 1990s office floor where every Claude Code agent is an office worker. Leave it open on a second screen, or on a wall-mounted tablet, and you can see at a glance who is typing, who is stuck waiting for your sign-off, and who has wandered off to play Mines.
+A 3D, 1990s office floor for observing Claude Code and Codex sessions. Leave it open on a second screen, or on a wall-mounted tablet, and you can see at a glance who is typing, who is stuck waiting for your sign-off, and who has wandered off to play Mines.
 
-- **Specialists** are your Claude Code sessions. Each gets a cubicle with a nameplate.
+- **Specialists** are your coding sessions. Each gets a cubicle with a nameplate.
 - **Temps** are subagents. They come in through the front door wearing a yellow badge, sit at the temp desks, and go home when they're done.
 - **Maintenance** drops by every quarter hour to fix the copier and the coffee machine.
 - **Mr. Pemberton**, the Manager, sits in the glass office. He walks over to anyone slacking off. You can rename him, and everyone else, and give him his own lines with a `names.txt` (see [docs/tablet-kiosk.md](docs/tablet-kiosk.md#changing-the-workers-names)).
@@ -19,7 +19,7 @@ A 3D, 1990s office floor where every Claude Code agent is an office worker. Leav
 | Finished a turn | Coffee break |
 | Idle more than 2 minutes | Playing Mines at the desk |
 
-The roster lists everyone with their computer and project. Click a worker for their personnel file: their current assignment and a log of what they did.
+The roster lists everyone with their computer and project. Click a worker for their personnel file and activity. Coverage depends on the provider: Codex tool activity without a native actor ID remains unattributed. See [Codex integration](docs/codex.md) for supported events and limitations.
 
 ## Try it on your own computer
 
@@ -36,6 +36,8 @@ python server.py --open
 ```
 
 That opens http://127.0.0.1:8377. Run like this, the office reads the transcripts Claude Code keeps on this computer (`~/.claude/projects`), so your sessions walk in on their own: no hooks, keys or configuration. Use `python3` on macOS and Linux. On Windows you can also double-click `start-office.bat`.
+
+Codex uses [native hooks and a separate relay installation](docs/codex.md#install-and-check), including on the same computer. The office does not read Codex transcripts or launch AI sessions.
 
 No sessions running yet? Click **Demo shift** in the taskbar to see it with pretend staff.
 
@@ -54,17 +56,17 @@ The server can even redeploy itself when you push to GitHub.
 ## How it fits together
 
 ```
- Claude Code on any PC ──hooks──▶ hook_relay.py ──HTTP + key──▶ server.py ──live stream──▶ browser / tablet
- (Windows, macOS, Linux)        (trims each event)             (who is doing what)        (3D office in three.js)
+ Claude Code or Codex ──hooks──▶ hook_relay.py ──signed HTTP──▶ server.py ──live stream──▶ browser / tablet
+ (Windows, macOS, Linux)       (sanitizes each event)           (who is doing what)        (3D office in three.js)
 ```
 
-On a single PC, the server reads the transcripts instead and the relay isn't needed. Either way the office only **displays**. It never approves anything for Claude; you do that in Claude Code or the Claude app. See [docs/architecture.md](docs/architecture.md).
+On a single PC, Claude Code can use local transcripts without a relay. The office only **displays** activity. Approvals stay in the provider's own interface. See [docs/architecture.md](docs/architecture.md).
 
 ## Repository layout
 
 ```
 server.py               office server: hooks + transcripts in, live state out (stdlib only)
-hook_relay.py           runs on each PC as a Claude Code hook; trims and forwards events
+hook_relay.py           standalone Claude Code / Codex hook; sanitizes and forwards events
 static/index.html       page shell and the retro desktop HUD
 static/office.js        the 3D office, the workers and their behaviour, demo shift
 static/vendor/          three.js r169 (MIT) with its licence, stored locally so it works offline
@@ -74,7 +76,8 @@ scripts/deploy-pi.sh    push to the server and check the office came back up
 start-office.bat        double-click launcher for a local Windows run
 Dockerfile, compose.yaml, .env.example, docker/   the container (see docs/docker.md)
 tests/                  the /hook security, what the office shows, and the container's start-up
-CLAUDE.md               working rules Claude Code reads when you work on this project
+AGENTS.md               shared working rules for coding agents
+CLAUDE.md               imports AGENTS.md and adds Claude-specific working notes
 CHANGELOG.md            what changed, and what to do when upgrading
 docs/                   everything else
 ```
@@ -85,6 +88,7 @@ docs/                   everything else
 - [Docker](docs/docker.md): run the office in a container with one command
 - [Server](docs/pi-server.md): install without Docker, service, settings, updating, auto-deploy from GitHub
 - [Connecting PCs](docs/connecting-pcs.md): the installer, Tailscale, uninstalling
+- [Codex integration](docs/codex.md): native hooks, installation, trust and coverage limits
 - [Tablet kiosk](docs/tablet-kiosk.md): Fully Kiosk, low quality mode, approvals
 - [Security](docs/security.md): what leaves your PC, who can see what, the keys
 - [Development](docs/development.md): running locally, code map, adding a station, testing
@@ -95,4 +99,4 @@ docs/                   everything else
 
 [MIT](LICENSE). The office, its people and everything on screen are drawn in code from simple shapes; there are no third-party game assets. The 3D rendering uses [three.js](https://threejs.org) (MIT), bundled in `static/vendor/`. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for that, the fonts, and trademarks.
 
-This is a fan-made tool for Claude Code users. It isn't affiliated with or endorsed by Anthropic.
+This is a fan-made tool for coding-agent users. It isn't affiliated with or endorsed by Anthropic or OpenAI.

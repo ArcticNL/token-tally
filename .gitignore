@@ -7,6 +7,7 @@ __pycache__/
 *.pyc
 settings.json.bak-*
 .claude/
+CLAUDE.local.md
 
 # This machine's office settings (see pi/office.env.example)
 office.env
@@ -16,6 +17,11 @@ names.txt
 
 # Container settings (see .env.example)
 .env
+compose.override.yaml
 
 # The container's data folder, if used (see .env.example)
 data/
+
+# Browser tests: development dependencies and failure diagnostics
+node_modules/
+output/playwright/

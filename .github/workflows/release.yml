@@ -1,0 +1,196 @@
+name: Release tested images
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full commit SHA already tested on main
+        required: true
+        type: string
+      version:
+        description: New stable version (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: release-publication
+  cancel-in-progress: false
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      source_sha: ${{ steps.check.outputs.source_sha }}
+      version: ${{ steps.check.outputs.version }}
+      image: ${{ steps.check.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Separate short-lived GitHub App token, Administration:read only.
+          # Never available to PR workflows, builds, or candidate code.
+          RELEASE_POLICY_TOKEN: ${{ secrets.RELEASE_POLICY_TOKEN }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+        run: python3 -B scripts/release.py check --repository "$GITHUB_REPOSITORY" --source-sha "$SOURCE_SHA" --version "$VERSION"
+  build_amd64:
+    # Separate callers preserve each producer's output across failed-only reruns.
+    needs: check
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/release-build.yml
+    with:
+      arch: amd64
+      source_sha: ${{ needs.check.outputs.source_sha }}
+      version: ${{ needs.check.outputs.version }}
+      image: ${{ needs.check.outputs.image }}
+  build_arm64:
+    needs: check
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/release-build.yml
+    with:
+      arch: arm64
+      source_sha: ${{ needs.check.outputs.source_sha }}
+      version: ${{ needs.check.outputs.version }}
+      image: ${{ needs.check.outputs.image }}
+  index:
+    needs: [check, build_amd64, build_arm64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
+      # Consumers retain this exact tested descriptor when only they are rerun.
+      descriptor_artifact_id: ${{ steps.descriptor.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build_amd64.outputs.artifact_id }},${{ needs.build_arm64.outputs.artifact_id }}
+          merge-multiple: true
+      - name: Assemble the candidate once, before testing
+        env:
+          IMAGE: ${{ needs.check.outputs.image }}
+          CANDIDATE: ${{ needs.check.outputs.image }}:candidate-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          docker buildx imagetools create --tag "$CANDIDATE" "$IMAGE@$(cat amd64.digest)" "$IMAGE@$(cat arm64.digest)"
+      - id: manifest
+        env:
+          IMAGE: ${{ needs.check.outputs.image }}
+          SOURCE_SHA: ${{ needs.check.outputs.source_sha }}
+          VERSION: ${{ needs.check.outputs.version }}
+          CANDIDATE: ${{ needs.check.outputs.image }}:candidate-${{ github.run_id }}-${{ github.run_attempt }}
+        run: python3 -B scripts/release.py manifest --image "$IMAGE" --source-sha "$SOURCE_SHA" --version "$VERSION" --candidate "$CANDIDATE" --output release.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: descriptor
+        with:
+          name: release-descriptor-${{ github.run_attempt }}
+          path: release.json
+          if-no-files-found: error
+          retention-days: 7
+  smoke:
+    needs: [check, index]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.check.outputs.source_sha }}
+          path: release-source
+          persist-credentials: false
+      - name: Pull and test the exact final candidate index
+        env:
+          IMAGE: ${{ needs.check.outputs.image }}@${{ needs.index.outputs.digest }}
+          PLATFORM: linux/${{ matrix.arch }}
+          VERSION: ${{ needs.check.outputs.version }}
+          SOURCE_SHA: ${{ needs.check.outputs.source_sha }}
+        run: |
+          docker pull --platform "$PLATFORM" "$IMAGE"
+          python3 -B tests/test_docker_smoke.py --image "$IMAGE" --platform "$PLATFORM" --expected-version "$VERSION" --expected-revision "$SOURCE_SHA" --source-root "$GITHUB_WORKSPACE/release-source"
+  promote:
+    needs: [check, index, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.index.outputs.descriptor_artifact_id }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - run: python3 -B scripts/release.py promote release.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+  publish:
+    needs: [check, index, promote]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.index.outputs.descriptor_artifact_id }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish the complete immutable release last
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_TOKEN: ${{ secrets.RELEASE_POLICY_TOKEN }}
+        run: python3 -B scripts/release.py publish release.json --repository "$GITHUB_REPOSITORY"

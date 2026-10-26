@@ -1,0 +1,13 @@
+# Host-installed security baseline. The updater supplies an exact local image ID,
+# explicit network settings and the existing data mount in office-runtime.json.
+services:
+  office:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

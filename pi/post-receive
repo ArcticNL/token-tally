@@ -1,8 +1,19 @@
 #!/bin/sh
-# Git hook for the bare repo on the Pi (~/git/token-tally-office.git/hooks/post-receive).
-# A push to main deploys it, using pi/deploy.sh from the pushed commit itself.
-set -e
+# Installed hook. A successful Git push alone does not confirm deployment.
+set -eu
+REPO=$(pwd)
 while read -r old new ref; do
-    [ "$ref" = "refs/heads/main" ] || continue
-    git show "$new:pi/deploy.sh" | sh -s -- "$(pwd)"
+    [ "$ref" = refs/heads/main ] || continue
+    [ "$new" != 0000000000000000000000000000000000000000 ] || continue
+    # Once host management is installed, missing/corrupt policy fails closed.
+    # Never extract candidate code before this gate.
+    if [ -d "$REPO/office-host" ] || [ -e "$REPO/office-policy.json" ]; then
+        python3 "$REPO/office-host/release_update.py" --config "$REPO/office-policy.json" --trigger push
+        continue
+    fi
+    SCRIPT=$(mktemp "${TMPDIR:-/tmp}/token-tally-push.XXXXXX")
+    trap 'rm -f "$SCRIPT"' EXIT HUP INT TERM
+    git --git-dir="$REPO" show "$new:pi/deploy.py" > "$SCRIPT"
+    python3 "$SCRIPT" "$REPO" "$new" push
+    rm -f "$SCRIPT"
 done

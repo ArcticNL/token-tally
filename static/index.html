@@ -43,7 +43,8 @@
   #roster .body { display: flex; flex-direction: column; min-height: 0; padding: 6px; gap: 6px; }
   #roster .list { overflow: auto; min-height: 60px; }
   #roster .hint { font-size: 11px; color: #333; }
-  .row { display: grid; grid-template-columns: 14px 1fr auto; gap: 2px 7px; padding: 4px 6px; cursor: pointer; align-items: center; border-bottom: 1px solid #eee; }
+  .row { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 2px 7px; padding: 4px 6px; cursor: pointer; align-items: center;
+    width: 100%; text-align: left; font: inherit; color: inherit; background: transparent; border: 0; border-bottom: 1px solid #eee; }
   .row.child { padding-left: 22px; }
   .row:hover { background: #e7e9f6; }
   .row.sel { background: var(--navy); color: #fff; }
@@ -51,10 +52,17 @@
   .row .nm { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row .sub { grid-column: 2 / 4; font-size: 11px; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row.sel .sub { color: #d6dcff; }
+  .row .meta { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: 1px 7px; font-size: 10px; color: #555; min-width: 0; }
+  .row.sel .meta { color: #d6dcff; }
+  .row .origin, .row .parent { flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .parent[hidden] { display: none; }
+  .row .quality { font-weight: bold; }
   .pill { display: inline-block; font-size: 9px; font-weight: bold; padding: 0 4px; margin-left: 4px; border: 1px solid currentColor; text-transform: uppercase; vertical-align: 1px; }
+  .pill[hidden] { display: none; }
   .st { font-size: 10px; font-weight: bold; text-transform: uppercase; padding: 1px 5px; color: #fff; white-space: nowrap; }
   .st.work { background: var(--ok); } .st.think { background: var(--think); } .st.wait { background: var(--wait); }
   .st.break { background: var(--brk); } .st.slack { background: var(--slack); } .st.boss { background: #333; }
+  .st.unknown { background: #666; }
   .empty-row { padding: 10px 6px; color: #444; }
 
   #file { right: 12px; bottom: 46px; width: 370px; max-height: calc(100% - 140px); display: flex; flex-direction: column; }

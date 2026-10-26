@@ -1,0 +1,8 @@
+# Only isolation differs from production. Requires Docker Compose >= 2.24.4.
+services:
+  office:
+    image: ${SMOKE_IMAGE:?test image required}
+    container_name: ${SMOKE_CONTAINER:?test container required}
+    restart: "no"
+    ports: !override
+      - "127.0.0.1::8377"

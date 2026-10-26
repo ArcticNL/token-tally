@@ -16,7 +16,14 @@ pi
 scripts
 start-office.bat
 compose.yaml
+compose.override.yaml
 Dockerfile
 **/__pycache__
 **/*.pyc
 data
+node_modules
+output
+package.json
+package-lock.json
+playwright.config.mjs
+.github

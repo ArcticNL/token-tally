@@ -1,5 +1,34 @@
 # Running the office in Docker
 
+Manual tested images and optional host updates are described in
+[releases](releases.md) and [release updates](release-updates.md). Automatic
+updates start paused and preserve an explicitly configured existing data mount.
+
+## Container verification
+
+The entrypoint test (`python tests/test_container_start.py`) does not run Docker.
+The explicit integration test below builds and runs the actual image with the
+production Compose security settings. It needs Docker Engine and Compose 2.24.4+
+(the isolation override replaces the production port). It fails when Docker is
+unavailable; that is not a successful container check.
+
+```bash
+docker build --platform linux/amd64 --tag token-tally:smoke .
+python tests/test_docker_smoke.py --image token-tally:smoke --platform linux/amd64
+```
+
+Use `linux/arm64` on an ARM64 host. CI runs both architectures natively, without
+registry credentials or a deployment connection. Tests use unique containers and
+volumes, synthetic keys/names and ephemeral loopback ports. The bind-mount case
+requires a non-root host user. They check signing/replay, packaged assets, runtime
+confinement and byte-identical data after container replacement; they never use
+your local `.env` or data. Only their own resources are removed.
+
+ARM64 CI is functional evidence, not a Pi 3 performance measurement. Before a
+release is adopted on a Pi 3, an operator must test the exact release image on its
+64-bit OS and check startup time and memory usage. Do not make a production Pi a
+runner for pull requests.
+
 The container is the simplest way to run the office on an always-on machine: a home server, a NAS or a Raspberry Pi. It replaces the systemd setup in [pi-server.md](pi-server.md). PCs still need the relay ([connecting-pcs.md](connecting-pcs.md)), because it has to run inside each PC's Claude Code hooks.
 
 You need Docker with the Compose plugin ([install Docker Engine](https://docs.docker.com/engine/install/)). A Raspberry Pi needs a 64-bit OS. On Debian or Raspberry Pi OS, the distribution's own packages are enough: `sudo apt install docker.io docker-compose`.
@@ -44,9 +73,63 @@ The container now runs as you and keeps `hook.key` in `./data`. The `data/` fold
 
 To use your own worker, Manager and Maintenance names (see [tablet-kiosk.md](tablet-kiosk.md#changing-the-workers-names)):
 - **With a data folder:** put `names.txt` in `data/`.
-- **With the volume:** put `names.txt` next to `compose.yaml`, uncomment the `./names.txt:/data/names.txt:ro` line in `compose.yaml`, and run `docker compose up -d` once.
+- **With the volume:** put `names.txt` next to `compose.yaml`, then add the following
+  setting to a private `compose.override.yaml` beside it. Merge it into an existing
+  override instead of replacing that file:
+
+  ```yaml
+  services:
+    office:
+      volumes:
+        - ./names.txt:/data/names.txt:ro
+  ```
+
+  Run `docker compose up -d` once. Compose loads this override automatically, and
+  the legacy deployment helper loads it explicitly. It stays out of Git and the
+  image build context. Keep installation settings here rather than editing the
+  tracked `compose.yaml`.
 
 After that, edit `names.txt` whenever you like. The office picks changes up within 30 seconds.
+
+### Existing installations with an edited Compose file
+
+Older instructions added the names mount directly to `compose.yaml`. Legacy
+deployments now refuse a locally modified `compose.yaml` before checking out or
+restarting anything, so the active configuration and names remain in place.
+
+For an installation still using the old deployment entrypoints, perform this
+Compose migration during the [pause and preservation stage](pi-server.md#pause-preserve-and-stage)
+of the mandatory manual transition, **before invoking the deployer**. The old
+argument contract cannot start the new deployer. Before retrying, pause both
+legacy update routes and let any running deployment finish. Back up the edited Compose file outside the checkout. Move its local
+settings into `compose.override.yaml` as above, preserving any existing override
+settings. Compare against the revision that populated the checkout: older
+installations left `HEAD` attached to `main` and recorded that checkout in
+`refs/office/live`. A failed push may already have moved `main`. Newer deployments
+leave `HEAD` detached; use that revision even if a failed runtime start left
+`refs/office/live` pointing to an older healthy version. For a bare-repository
+installation, run these commands from the office checkout after setting `BARE`
+to its bare repository:
+
+```sh
+COMPOSE_BASE=HEAD
+if git --git-dir="$BARE" symbolic-ref -q HEAD >/dev/null &&
+   git --git-dir="$BARE" rev-parse --verify refs/office/live >/dev/null 2>&1; then
+    COMPOSE_BASE=refs/office/live
+fi
+git --git-dir="$BARE" --work-tree="$PWD" diff "$COMPOSE_BASE" -- compose.yaml
+# Only after saving all local settings in compose.override.yaml:
+git --git-dir="$BARE" show "$COMPOSE_BASE:compose.yaml" > compose.yaml
+docker compose config
+```
+
+Inspect the resolved `/data` and `/data/names.txt` mounts, user and ports before
+retrying the exact deployment. Do not remove or recreate the data volume. The
+failed push may already have updated the bare repository's `main`; an up-to-date
+push will not rerun its hook. Complete the explicit-SHA manual transition before
+resuming old installations. On an already transitioned installation, use the
+manual legacy deployer or the new GitHub pull service after Compose migration,
+then re-enable the paused routes.
 
 ## Everyday commands
 
@@ -85,7 +168,18 @@ The push-to-deploy and GitHub auto-deploy from [pi-server.md](pi-server.md) work
 - the read-only GitHub deploy key
 - `token-tally-pull.timer`
 
-The office folder (`~/token-tally-office`, the checkout) also holds `.env` and `data/`. When `pi/deploy.sh` finds `compose.yaml` and `.env` there, it rebuilds and restarts the container (`docker compose up -d --build`) instead of restarting the systemd service, then waits for it to report healthy. The deploy log says `container healthy` when all is well, and the output of the last build is in `office-compose.log` next to it. The account running it needs to be in the `docker` group.
+The office folder (`~/token-tally-office`, the checkout) also holds `.env` and
+`data/`. When the deployment helper finds `compose.yaml` and `.env`, it builds an
+image tagged with the exact source commit, starts it without another build/pull,
+and verifies that image's container health. A private `compose.override.yaml` is
+included before the deployer's exact image override; a candidate cannot track or
+replace this private file. Local edits to the tracked `compose.yaml` must first
+be [migrated](#existing-installations-with-an-edited-compose-file). Without Docker
+configuration, the helper restarts the systemd
+service. Missing Docker is an error when Docker configuration was selected.
+`office-deploy-result.json` and `office-deploy.log` record the outcome; private
+configuration and raw command output are not included. The account needs Docker
+access. The live ref changes only after successful verification.
 
 ## Moving from the systemd setup
 
